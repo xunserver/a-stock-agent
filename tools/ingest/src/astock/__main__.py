@@ -4,6 +4,7 @@ import argparse
 import json
 
 from astock.config import DEFAULT_ADJUST, INDEX_ALIASES, REQUEST_SLEEP_SECONDS
+from astock.boards import sync_boards
 from astock.ingest import configure_logging
 from astock.pool import add_codes_to_pool, add_codes_to_stocks, add_index_to_pool, add_index_to_stocks
 from astock.quotes import sync_quotes
@@ -12,6 +13,7 @@ from astock.stock import (
     resolve_sync_codes,
     stock_snapshot,
     sync_stock,
+    sync_stock_info,
 )
 from astock_core.db import MarketDB
 from astock_core.paths import DB_PATH, DEFAULT_POOL_ID
@@ -143,7 +145,7 @@ def main() -> None:
         parents=[common],
     )
     sync.add_argument("codes", nargs="?", help="一个或多个代码，逗号分隔")
-    sync.add_argument("--info", action="store_true", help="只同步资料（行业/股本/ST/停牌）")
+    sync.add_argument("--info", action="store_true", help="只同步资料（行情快照/估值/财务/ST/停牌）")
     sync.add_argument("--quotes", action="store_true", help="只补齐日线")
     sync.add_argument("--sleep", type=float, default=REQUEST_SLEEP_SECONDS)
     sync.add_argument("--add-to-pool", action="store_true", help="若代码不在当前池则加入")
@@ -152,13 +154,30 @@ def main() -> None:
     quotes_sub = quotes.add_subparsers(dest="quotes_cmd", required=True)
     qsync = quotes_sub.add_parser(
         "sync",
-        help="池内新票拉全历史，其余补齐到最近交易日",
+        help="池内新票拉全历史，其余补齐到最近交易日，并写入估值/财务资料",
         parents=[common],
     )
     qsync.add_argument("--sleep", type=float, default=REQUEST_SLEEP_SECONDS)
     qsync.add_argument("--adjust", default=DEFAULT_ADJUST, choices=["", "qfq", "hfq"])
     qsync.add_argument("--limit", type=int)
+    qsync.add_argument("--codes", help="逗号分隔股票代码；不写则同步当前池全部活跃成员")
     quotes_sub.add_parser("pending", help="只看谁需要拉全历史 / 补齐", parents=[common])
+
+    boards = sub.add_parser("boards", help="东财行业/概念板块", parents=[common])
+    boards_sub = boards.add_subparsers(dest="boards_cmd", required=True)
+    bsync = boards_sub.add_parser(
+        "sync",
+        help="同步行业/概念名录与成分；成员只保留系统内已有股票",
+        parents=[common],
+    )
+    bsync.add_argument(
+        "--kind",
+        default="all",
+        choices=["all", "industry", "concept"],
+        help="同步范围，默认 all",
+    )
+    bsync.add_argument("--sleep", type=float, default=REQUEST_SLEEP_SECONDS)
+    bsync.add_argument("--limit", type=int, help="每种类型最多同步多少个板块（试跑）")
 
     sub.add_parser("status", help="库规模与当前池摘要", parents=[common])
 
@@ -260,6 +279,19 @@ def main() -> None:
             _print(result)
             return
 
+        if args.cmd == "boards":
+            kinds = ("industry", "concept") if args.kind == "all" else (args.kind,)
+            result = sync_boards(
+                db,
+                kinds=kinds,
+                sleep=args.sleep,
+                limit=args.limit,
+            )
+            result["db"] = str(DB_PATH)
+            result.update(db.counts(args.pool))
+            _print(result)
+            return
+
         if args.quotes_cmd == "pending":
             plan = db.pool_quote_plan(args.pool)
             payload = {
@@ -273,10 +305,14 @@ def main() -> None:
         result = sync_quotes(
             db,
             pool_id=args.pool,
+            codes=_codes(getattr(args, "codes", None)) or None,
             adjust=args.adjust,
             sleep=args.sleep,
             limit=args.limit,
         )
+        info_codes = _codes(getattr(args, "codes", None)) or db.active_pool_codes(args.pool)
+        if info_codes:
+            result.update(sync_stock_info(db, info_codes, sleep=args.sleep))
         result["db"] = str(DB_PATH)
         result.update(db.counts(args.pool))
         _print(result)

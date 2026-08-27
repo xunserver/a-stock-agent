@@ -1,0 +1,6 @@
+# Project-scoped MCP (loaded only when this project is trusted).
+# Binary: pnpm global install of codebase-memory-mcp
+
+[mcp_servers.codebase-memory-mcp]
+command = "/home/xun/.local/share/pnpm/codebase-memory-mcp"
+args = []

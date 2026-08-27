@@ -17,3 +17,11 @@ packages = ["src/astock"]
 
 [tool.uv.sources]
 astock-core = { path = "../../packages/core", editable = true }
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

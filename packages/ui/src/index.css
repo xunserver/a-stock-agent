@@ -23,6 +23,10 @@
     --color-chart-3: var(--chart-3);
     --color-chart-2: var(--chart-2);
     --color-chart-1: var(--chart-1);
+    --color-gain-foreground: var(--gain-foreground);
+    --color-gain: var(--gain);
+    --color-loss-foreground: var(--loss-foreground);
+    --color-loss: var(--loss);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -74,6 +78,11 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    /* 价格涨跌：A 股红涨绿跌，与 destructive 区分 */
+    --gain: oklch(0.58 0.21 27);
+    --gain-foreground: oklch(0.985 0.005 27);
+    --loss: oklch(0.52 0.14 155);
+    --loss-foreground: oklch(0.985 0.01 155);
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -109,6 +118,10 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    --gain: oklch(0.72 0.18 25);
+    --gain-foreground: oklch(0.22 0.05 25);
+    --loss: oklch(0.76 0.14 155);
+    --loss-foreground: oklch(0.22 0.04 155);
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -123,10 +136,9 @@
   * {
     @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
-    }
-  html {
-    @apply font-sans;
+  html,
+  body,
+  #root {
+    @apply h-full overflow-hidden bg-background font-sans text-foreground;
     }
 }

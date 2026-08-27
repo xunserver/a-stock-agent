@@ -48,7 +48,14 @@ def dump_qlib(
     pool_symbols = {to_qlib_symbol(code) for code in pool_codes}
     pool_inst = instruments[instruments["symbol"].isin(pool_symbols)]
     _write_instruments(tmp / "instruments" / f"{pool_id}.txt", pool_inst)
-    _write_instruments(tmp / "instruments" / "csi300.txt", pool_inst)
+    # 研究用 csi300 跟沪深300成分，不跟当前 default 池（可能被裁过）
+    hs300_codes = set(db.universe_codes("hs300"))
+    if hs300_codes:
+        csi_symbols = {to_qlib_symbol(code) for code in hs300_codes}
+        csi_inst = instruments[instruments["symbol"].isin(csi_symbols)]
+    else:
+        csi_inst = pool_inst
+    _write_instruments(tmp / "instruments" / "csi300.txt", csi_inst)
 
     n_written = 0
     grouped = list(combined.groupby("symbol", sort=True))
@@ -72,6 +79,7 @@ def dump_qlib(
         "calendar_last": calendar[-1].strftime("%Y-%m-%d"),
         "instruments": int(len(instruments)),
         "pool_instruments": int(len(pool_inst)),
+        "csi300_instruments": int(len(csi_inst)),
         "features": n_written,
         "rows": int(len(combined)),
     }

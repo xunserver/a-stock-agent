@@ -13,11 +13,12 @@ from astock.config import (
     HS300_INDEX_CODE,
     HS300_SYMBOL,
     MAJOR_INDEXES,
+    QUOTE_PERIODS,
     REQUEST_RETRIES,
     REQUEST_SLEEP_SECONDS,
 )
 from astock import eastmoney
-from astock_core.db import MarketDB, _ymd
+from astock_core.db import INGEST_KINDS, MarketDB, _ymd
 from astock_core.paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -199,67 +200,87 @@ def _num(value: object) -> float | None:
         return None
 
 
-def _fetch_stock_daily(code: str, start: str, end: str, adjust: str) -> pd.DataFrame:
+def _fetch_stock_bars(
+    code: str,
+    start: str,
+    end: str,
+    adjust: str,
+    period: str = "daily",
+) -> pd.DataFrame:
+    if period not in QUOTE_PERIODS:
+        raise ValueError(f"不支持的 K 线周期: {period}")
     try:
-        return eastmoney.stock_daily(code, start, end, adjust=adjust)
+        return eastmoney.stock_kline(code, start, end, adjust=adjust, period=period)
     except Exception as exc:
-        logger.warning("东财日线失败 %s，改用腾讯：%s", code, exc)
+        logger.warning("东财%s线失败 %s，改用 AKShare：%s", period, code, exc)
 
     import akshare as ak
 
-    try:
-        frame = ak.stock_zh_a_hist_tx(
-            symbol=code,
-            start_date=start,
-            end_date=end,
-            adjust=adjust,
-        )
-        if frame is not None and not frame.empty:
-            renamed = frame.rename(
-                columns={
-                    "date": "日期",
-                    "open": "开盘",
-                    "close": "收盘",
-                    "high": "最高",
-                    "low": "最低",
-                    "volume": "成交量",
-                    "amount": "成交额",
-                }
+    if period == "daily":
+        try:
+            frame = ak.stock_zh_a_hist_tx(
+                symbol=code,
+                start_date=start,
+                end_date=end,
+                adjust=adjust,
             )
-            renamed["股票代码"] = code
-            renamed["振幅"] = None
-            renamed["涨跌幅"] = None
-            renamed["涨跌额"] = None
-            renamed["换手率"] = renamed["turnover"] if "turnover" in renamed.columns else None
-            return renamed
-    except Exception as exc:
-        logger.warning("腾讯日线失败 %s，改用新浪：%s", code, exc)
+            if frame is not None and not frame.empty:
+                renamed = frame.rename(
+                    columns={
+                        "date": "日期",
+                        "open": "开盘",
+                        "close": "收盘",
+                        "high": "最高",
+                        "low": "最低",
+                        "volume": "成交量",
+                        "amount": "成交额",
+                    }
+                )
+                renamed["股票代码"] = code
+                renamed["振幅"] = None
+                renamed["涨跌幅"] = None
+                renamed["涨跌额"] = None
+                renamed["换手率"] = renamed["turnover"] if "turnover" in renamed.columns else None
+                return renamed
+        except Exception as exc:
+            logger.warning("腾讯日线失败 %s，改用新浪：%s", code, exc)
 
-    prefix = "sh" if code.startswith("6") else "sz"
-    frame = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust=adjust)
+        prefix = "sh" if code.startswith("6") else "sz"
+        frame = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust=adjust)
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        renamed = frame.rename(
+            columns={
+                "date": "日期",
+                "open": "开盘",
+                "close": "收盘",
+                "high": "最高",
+                "low": "最低",
+                "volume": "成交量",
+                "amount": "成交额",
+            }
+        )
+        start_iso = f"{start[:4]}-{start[4:6]}-{start[6:8]}"
+        end_iso = f"{end[:4]}-{end[4:6]}-{end[6:8]}"
+        dates = pd.to_datetime(renamed["日期"], errors="coerce")
+        renamed = renamed[(dates >= start_iso) & (dates <= end_iso)]
+        renamed["股票代码"] = code
+        renamed["振幅"] = None
+        renamed["涨跌幅"] = None
+        renamed["涨跌额"] = None
+        renamed["换手率"] = renamed["turnover"] if "turnover" in renamed.columns else None
+        return renamed
+
+    frame = ak.stock_zh_a_hist(
+        symbol=code,
+        period=period,
+        start_date=start,
+        end_date=end,
+        adjust=adjust,
+    )
     if frame is None or frame.empty:
         return pd.DataFrame()
-    renamed = frame.rename(
-        columns={
-            "date": "日期",
-            "open": "开盘",
-            "close": "收盘",
-            "high": "最高",
-            "low": "最低",
-            "volume": "成交量",
-            "amount": "成交额",
-        }
-    )
-    start_iso = f"{start[:4]}-{start[4:6]}-{start[6:8]}"
-    end_iso = f"{end[:4]}-{end[4:6]}-{end[6:8]}"
-    dates = pd.to_datetime(renamed["日期"], errors="coerce")
-    renamed = renamed[(dates >= start_iso) & (dates <= end_iso)]
-    renamed["股票代码"] = code
-    renamed["振幅"] = None
-    renamed["涨跌幅"] = None
-    renamed["涨跌额"] = None
-    renamed["换手率"] = renamed["turnover"] if "turnover" in renamed.columns else None
-    return renamed
+    return frame
 
 
 def ingest_bars(
@@ -270,7 +291,11 @@ def ingest_bars(
     adjust: str = DEFAULT_ADJUST,
     sleep: float = REQUEST_SLEEP_SECONDS,
     start_date: str | None = None,
+    period: str = "daily",
 ) -> dict[str, int]:
+    if period not in QUOTE_PERIODS:
+        raise ValueError(f"不支持的 K 线周期: {period}")
+    ingest_kind = INGEST_KINDS[period]
     universe = codes if codes is not None else db.stock_codes()
     if limit is not None:
         universe = universe[:limit]
@@ -280,7 +305,8 @@ def ingest_bars(
     stats = {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
     total = len(universe)
     logger.info(
-        "开始逐只拉取日线：%s 只，复权=%s，起点=%s，截止日历=%s",
+        "开始逐只拉取%s线：%s 只，复权=%s，起点=%s，截止日历=%s",
+        {"daily": "日", "weekly": "周", "monthly": "月"}[period],
         total,
         adjust,
         history_start,
@@ -288,7 +314,7 @@ def ingest_bars(
     )
 
     for i, code in enumerate(universe, start=1):
-        last = db.last_bar_date(code, adjust=adjust)
+        last = db.last_bar_date(code, adjust=adjust, period=period)
         if last and last_cal and last >= last_cal:
             stats["skip"] += 1
             continue
@@ -296,14 +322,14 @@ def ingest_bars(
         if start < history_start:
             start = history_start
         try:
-            frame = _call(_fetch_stock_daily, code, start, end, adjust)
+            frame = _call(_fetch_stock_bars, code, start, end, adjust, period)
             rows = _bars_from_frame(code, frame, adjust) if frame is not None and not frame.empty else []
-            written = db.upsert_bars(rows)
+            written = db.upsert_bars(rows, period=period)
             last_date = rows[-1][1] if rows else last
             status = "ok" if rows else "empty"
             db.mark_ingest(
                 code,
-                "stock",
+                ingest_kind,
                 status,
                 adjust=adjust,
                 last_trade_date=last_date,
@@ -324,9 +350,9 @@ def ingest_bars(
                     stats["error"],
                 )
         except Exception as exc:
-            db.mark_ingest(code, "stock", "error", adjust=adjust, error=str(exc)[:500])
+            db.mark_ingest(code, ingest_kind, "error", adjust=adjust, error=str(exc)[:500])
             stats["error"] += 1
-            logger.warning("股票 %s 失败: %s", code, exc)
+            logger.warning("股票 %s %s线失败: %s", code, period, exc)
         time.sleep(sleep)
     return stats
 

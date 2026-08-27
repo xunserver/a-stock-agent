@@ -2,12 +2,36 @@ from __future__ import annotations
 
 import logging
 
-from astock.config import DEFAULT_ADJUST, HISTORY_START, REQUEST_SLEEP_SECONDS
+from astock.config import DEFAULT_ADJUST, HISTORY_START, QUOTE_PERIODS, REQUEST_SLEEP_SECONDS
 from astock.ingest import ingest_bars, ingest_calendar
 from astock_core.db import MarketDB
 from astock_core.paths import DEFAULT_POOL_ID
 
 logger = logging.getLogger(__name__)
+
+_PERIOD_LABEL = {"daily": "日", "weekly": "周", "monthly": "月"}
+
+
+def _plan_codes(
+    db: MarketDB,
+    codes: list[str],
+    *,
+    adjust: str,
+    period: str,
+) -> tuple[list[str], list[str], int]:
+    last_cal = db.last_calendar_date()
+    need_full: list[str] = []
+    need_fill: list[str] = []
+    already = 0
+    for code in codes:
+        last = db.last_bar_date(code, adjust=adjust, period=period)
+        if last is None:
+            need_full.append(code)
+        elif last_cal and last >= last_cal:
+            already += 1
+        else:
+            need_fill.append(code)
+    return need_full, need_fill, already
 
 
 def sync_quotes(
@@ -19,59 +43,83 @@ def sync_quotes(
     sleep: float = REQUEST_SLEEP_SECONDS,
     limit: int | None = None,
     refresh_calendar: bool = True,
+    periods: tuple[str, ...] = QUOTE_PERIODS,
 ) -> dict:
-    """盘后行情：指定代码或活跃池内，新票拉全历史，其余只补缺口。"""
+    """盘后行情：指定代码或活跃池内，新票拉全历史，其余只补缺口；日/周/月线一并补齐。"""
     calendar = ingest_calendar(db) if refresh_calendar else 0
     if codes is None:
-        plan = db.pool_quote_plan(pool_id, adjust=adjust)
-        need_full, need_fill, already = (
-            list(plan["full"]),
-            list(plan["fill"]),
-            len(plan["current"]),
-        )
+        target_codes = db.active_pool_codes(pool_id)
     else:
-        last_cal = db.last_calendar_date()
-        need_full, need_fill = [], []
-        already = 0
-        for code in codes:
-            last = db.last_bar_date(code, adjust=adjust)
-            if last is None:
-                need_full.append(code)
-            elif last_cal and last >= last_cal:
-                already += 1
-            else:
-                need_fill.append(code)
-    full = need_full[:limit] if limit is not None else need_full
-    fill = (
-        need_fill
-        if limit is None
-        else need_fill[: max(0, limit - len(full))]
-    )
-    logger.info(
-        "行情补齐：拉全历史 %s 只，补缺口 %s 只，已最新 %s 只",
-        len(full),
-        len(fill),
-        already,
-    )
-    full_stats = (
-        ingest_bars(db, codes=full, adjust=adjust, sleep=sleep, start_date=HISTORY_START)
-        if full
-        else {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
-    )
-    fill_stats = (
-        ingest_bars(db, codes=fill, adjust=adjust, sleep=sleep, start_date=HISTORY_START)
-        if fill
-        else {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
-    )
-    return {
+        target_codes = list(codes)
+
+    result: dict = {
         "pool": pool_id,
         "calendar": calendar,
-        "need_full": len(need_full),
-        "need_fill": len(need_fill),
-        "already_current": already,
-        "full_rows": full_stats["rows"],
-        "fill_rows": fill_stats["rows"],
-        "ok": full_stats["ok"] + fill_stats["ok"],
-        "error": full_stats["error"] + fill_stats["error"],
-        "empty": full_stats["empty"] + fill_stats["empty"],
+        "history_start": HISTORY_START,
+        "periods": list(periods),
+        "ok": 0,
+        "error": 0,
+        "empty": 0,
     }
+
+    for period in periods:
+        if period not in QUOTE_PERIODS:
+            raise ValueError(f"不支持的 K 线周期: {period}")
+        need_full, need_fill, already = _plan_codes(
+            db, target_codes, adjust=adjust, period=period
+        )
+        full = need_full[:limit] if limit is not None else need_full
+        fill = (
+            need_fill
+            if limit is None
+            else need_fill[: max(0, limit - len(full))]
+        )
+        logger.info(
+            "%s线补齐：拉全历史 %s 只，补缺口 %s 只，已最新 %s 只",
+            _PERIOD_LABEL[period],
+            len(full),
+            len(fill),
+            already,
+        )
+        full_stats = (
+            ingest_bars(
+                db,
+                codes=full,
+                adjust=adjust,
+                sleep=sleep,
+                start_date=HISTORY_START,
+                period=period,
+            )
+            if full
+            else {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
+        )
+        fill_stats = (
+            ingest_bars(
+                db,
+                codes=fill,
+                adjust=adjust,
+                sleep=sleep,
+                start_date=HISTORY_START,
+                period=period,
+            )
+            if fill
+            else {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
+        )
+        rows = full_stats["rows"] + fill_stats["rows"]
+        result[f"{period}_need_full"] = len(need_full)
+        result[f"{period}_need_fill"] = len(need_fill)
+        result[f"{period}_already_current"] = already
+        result[f"{period}_rows"] = rows
+        result["ok"] += full_stats["ok"] + fill_stats["ok"]
+        result["error"] += full_stats["error"] + fill_stats["error"]
+        result["empty"] += full_stats["empty"] + fill_stats["empty"]
+
+        # 兼容旧字段：以日线计划为准
+        if period == "daily":
+            result["need_full"] = len(need_full)
+            result["need_fill"] = len(need_fill)
+            result["already_current"] = already
+            result["full_rows"] = full_stats["rows"]
+            result["fill_rows"] = fill_stats["rows"]
+
+    return result

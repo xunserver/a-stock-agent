@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "b0872a09d128be8536d3fe4045e3e3b56330b661",
+    "indexed_at": "2026-08-27T09:26:50Z",
+    "project": "a-stock-agent",
+    "nodes": 2096,
+    "edges": 6742,
+    "original_size": 6422528,
+    "compressed_size": 1204328,
+    "compression_level": 9
+}

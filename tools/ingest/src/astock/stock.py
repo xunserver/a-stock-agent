@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import date
 
-from astock import eastmoney
 from astock.config import REQUEST_SLEEP_SECONDS
 from astock.ingest import _call
+from astock.profile import PROFILE_VALUE_KEYS, load_profiles
 from astock.quotes import sync_quotes
 from astock_core.db import MarketDB
 from astock_core.paths import DEFAULT_ADJUST, DEFAULT_POOL_ID
@@ -68,32 +67,39 @@ def sync_stock_info(
         logger.warning("ST 列表拉取失败：%s", exc)
         st_codes = set()
     suspend_map = fetch_suspend_map(last_cal)
+    try:
+        profiles = load_profiles(codes, sleep=sleep, st_codes=st_codes)
+    except Exception as exc:
+        logger.warning("AKShare 资料批量拉取失败：%s", exc)
+        profiles = {}
     ok = 0
     error = 0
     for i, code in enumerate(codes, start=1):
         try:
-            profile = _call(eastmoney.stock_profile, code)
+            profile = dict(profiles.get(code) or {})
+            existing = db.get_stock(code) or {}
+            name = str(profile.get("name") or existing.get("name") or code)
+            payload = {
+                key: profile[key]
+                for key in PROFILE_VALUE_KEYS
+                if key in profile and profile[key] is not None
+            }
             db.upsert_stock_profile(
                 code,
-                name=profile["name"],
-                industry=profile.get("industry"),
-                list_date=profile.get("list_date"),
-                total_shares=profile.get("total_shares"),
-                float_shares=profile.get("float_shares"),
-                total_mv=profile.get("total_mv"),
-                float_mv=profile.get("float_mv"),
-                latest_price=profile.get("latest_price"),
+                name=name,
+                **payload,
                 is_st=1 if code in st_codes else 0,
                 is_suspended=1 if code in suspend_map else 0,
                 suspend_info=suspend_map.get(code),
             )
+            if not payload:
+                raise RuntimeError("AKShare 未返回可用资料")
             ok += 1
             if i == 1 or i % 20 == 0 or i == len(codes):
-                logger.info("个股资料 %s/%s  %s %s", i, len(codes), code, profile.get("name"))
+                logger.info("个股资料 %s/%s  %s %s", i, len(codes), code, name)
         except Exception as exc:
             error += 1
             logger.warning("个股资料失败 %s: %s", code, exc)
-        time.sleep(sleep)
     return {"info_ok": ok, "info_error": error, "info_total": len(codes)}
 
 
@@ -145,10 +151,18 @@ def format_stock_snapshot(data: dict) -> str:
         ),
         "",
         "【资料】",
-        f"行业  {profile.get('industry') or '-'}",
+        f"行业  {profile.get('industry') or '-'}    地域 {profile.get('region') or '-'}",
         f"上市  {profile.get('list_date') or '-'}",
         f"总股本 { _fmt_num(profile.get('total_shares')) }    流通股 { _fmt_num(profile.get('float_shares')) }",
         f"总市值 { _fmt_num(profile.get('total_mv')) }    流通市值 { _fmt_num(profile.get('float_mv')) }",
+        f"PE动 { _fmt_num(profile.get('pe_dyn')) }    PE静 { _fmt_num(profile.get('pe_static')) }    PB { _fmt_num(profile.get('pb')) }",
+        f"昨收 { _fmt_num(profile.get('pre_close')) }    均价 { _fmt_num(profile.get('avg_price')) }    量比 { _fmt_num(profile.get('volume_ratio')) }",
+        f"涨停 { _fmt_num(profile.get('high_limit')) }    跌停 { _fmt_num(profile.get('low_limit')) }",
+        f"外盘 { _fmt_num(profile.get('outer_vol')) }    内盘 { _fmt_num(profile.get('inner_vol')) }",
+        f"EPS { _fmt_num(profile.get('eps')) }    BPS { _fmt_num(profile.get('bps')) }    ROE { _fmt_pct(profile.get('roe')) }",
+        f"营收 { _fmt_num(profile.get('revenue')) }    营收同比 { _fmt_pct(profile.get('revenue_yoy')) }",
+        f"净利同比 { _fmt_pct(profile.get('net_profit_yoy')) }    毛利率 { _fmt_pct(profile.get('gross_margin')) }",
+        f"净利率 { _fmt_pct(profile.get('net_margin')) }    资产负债率 { _fmt_pct(profile.get('debt_ratio')) }",
         f"ST    {'是' if profile.get('is_st') else '否'}    停牌 {'是 ' + (profile.get('suspend_info') or '') if profile.get('is_suspended') else '否'}",
         f"资料更新  {profile.get('updated_at') or '-'}",
     ]
@@ -195,6 +209,17 @@ def _fmt_num(value: object) -> str:
     if abs(number) >= 1e4:
         return f"{number / 1e4:.2f}万"
     return f"{number:.2f}"
+
+
+def _fmt_pct(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    sign = "+" if number > 0 else ""
+    return f"{sign}{number:.2f}%"
 
 
 def resolve_sync_codes(db: MarketDB, raw: str | None, pool_id: str) -> list[str]:

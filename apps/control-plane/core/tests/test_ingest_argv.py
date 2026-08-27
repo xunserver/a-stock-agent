@@ -1,5 +1,6 @@
 from astock_control.adapters.ingest import (
     INGEST_DIR,
+    boards_sync_argv,
     parse_trailing_json,
     pool_command_argv,
     quotes_sync_argv,
@@ -23,6 +24,13 @@ def test_quotes_sync_argv_optional_flags() -> None:
     assert argv[argv.index("--sleep") + 1] == "0.5"
     assert argv[argv.index("--adjust") + 1] == "qfq"
     assert argv[argv.index("--limit") + 1] == "2"
+
+
+def test_quotes_sync_argv_codes() -> None:
+    argv = quotes_sync_argv(
+        {"type": "quotes.sync", "pool": "default", "codes": ["000001", "600519"]}
+    )
+    assert argv[argv.index("--codes") + 1] == "000001,600519"
 
 
 def test_pool_add_codes_argv() -> None:
@@ -51,6 +59,28 @@ def test_stock_add_index_argv() -> None:
     argv = stock_command_argv({"type": "stock.add", "index": "hs300"})
     assert argv[-4:] == ["stock", "add", "--index", "hs300"]
     assert "--json" in argv
+
+
+def test_boards_sync_argv_defaults() -> None:
+    argv = boards_sync_argv({"type": "boards.sync", "pool": "default"})
+    assert argv[:3] == ["uv", "--directory", str(INGEST_DIR)]
+    assert argv[-4:] == ["boards", "sync", "--kind", "all"]
+    assert "--json" in argv
+
+
+def test_boards_sync_argv_optional_flags() -> None:
+    argv = boards_sync_argv(
+        {
+            "type": "boards.sync",
+            "pool": "default",
+            "kind": "industry",
+            "sleep": 0.2,
+            "limit": 3,
+        }
+    )
+    assert argv[argv.index("--kind") + 1] == "industry"
+    assert argv[argv.index("--sleep") + 1] == "0.2"
+    assert argv[argv.index("--limit") + 1] == "3"
 
 
 def test_parse_indented_json() -> None:

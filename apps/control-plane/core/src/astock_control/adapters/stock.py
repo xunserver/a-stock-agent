@@ -16,11 +16,20 @@ class StockRunner:
         self._db_path = db_path or DB_PATH
         self._ingest = IngestRunner()
 
-    def run(self, command: dict[str, Any], on_log: Callable[[str], None]) -> dict[str, Any]:
+    def run(
+        self,
+        command: dict[str, Any],
+        on_log: Callable[[str], None],
+        *,
+        timeout: float | None = None,
+        cancel_event=None,
+    ) -> dict[str, Any]:
         typ = command.get("type")
         if typ == "stock.add":
             if command.get("index"):
-                return self._ingest.run(command, on_log)
+                return self._ingest.run(
+                    command, on_log, timeout=timeout, cancel_event=cancel_event
+                )
             codes = [str(code) for code in command.get("codes") or []]
             on_log(f"加入系统 {','.join(codes)}")
             with MarketDB(self._db_path) as db:

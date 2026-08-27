@@ -9,6 +9,8 @@ export type Status = {
   pool_removed: number
   stocks: number
   bars_daily: number
+  bars_weekly?: number
+  bars_monthly?: number
 }
 
 export type PoolMember = {
@@ -56,13 +58,17 @@ export async function queryPools(): Promise<PoolsList> {
   return (await response.json()) as PoolsList
 }
 
-export type JobStatus = "queued" | "running" | "succeeded" | "failed"
+export type JobStatus =
+  "queued" | "running" | "succeeded" | "failed" | "cancelled"
 
 export type Job = {
   id: string
   type: string
+  name: string
   status: JobStatus
   command: Record<string, unknown>
+  background: boolean
+  timeout_seconds: number
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -147,6 +153,7 @@ export type StockPoolRef = {
 
 export type StockRow = {
   code: string
+  ticker?: string
   name: string | null
   industry: string | null
   is_st: number
@@ -174,13 +181,92 @@ export async function queryStocks(): Promise<StocksList> {
   return (await response.json()) as StocksList
 }
 
+export type DailyBar = {
+  trade_date: string
+  open: number | null
+  close: number | null
+  high: number | null
+  low: number | null
+  volume: number | null
+  amount: number | null
+  pct_chg: number | null
+  turnover: number | null
+  amplitude: number | null
+  change_amount: number | null
+}
+
+export type StockProfile = {
+  code: string
+  name: string | null
+  industry: string | null
+  region: string | null
+  list_date: string | null
+  total_shares: number | null
+  float_shares: number | null
+  total_mv: number | null
+  float_mv: number | null
+  latest_price: number | null
+  pre_close: number | null
+  avg_price: number | null
+  high_limit: number | null
+  low_limit: number | null
+  volume_ratio: number | null
+  outer_vol: number | null
+  inner_vol: number | null
+  pe_dyn: number | null
+  pe_static: number | null
+  pb: number | null
+  eps: number | null
+  bps: number | null
+  roe: number | null
+  revenue: number | null
+  revenue_yoy: number | null
+  net_profit: number | null
+  net_profit_yoy: number | null
+  gross_margin: number | null
+  net_margin: number | null
+  debt_ratio: number | null
+  is_st: number
+  is_suspended: number
+  suspend_info: string | null
+  updated_at: string | null
+}
+
+export type QuotesSummary = {
+  adjust: string
+  bars: number
+  first: string | null
+  last: string | null
+  calendar_as_of: string | null
+  missing_sessions: number
+}
+
+export type StockDetail = {
+  code: string
+  ticker: string
+  profile: StockProfile
+  pools?: StockPoolRef[]
+  quotes_summary: QuotesSummary
+  latest_bar: DailyBar | null
+  bars: DailyBar[]
+  bars_weekly?: DailyBar[]
+  bars_yearly?: DailyBar[]
+}
+
+export async function queryStock(code: string): Promise<StockDetail> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "stock.get", code }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as StockDetail
+}
+
 export type LlmProvider =
-  | "openai_compatible"
-  | "qwen-cn"
-  | "deepseek"
-  | "glm-cn"
-  | "ollama"
-  | "openai"
+  "openai_compatible" | "qwen-cn" | "deepseek" | "glm-cn" | "ollama" | "openai"
 
 export type OutputLanguage = "Chinese" | "English"
 
@@ -266,9 +352,11 @@ function normalizeAnalyzeSettings(raw: unknown): AnalyzeSettings {
   return {
     ...DEFAULT_ANALYZE_SETTINGS,
     ...value,
-    analysts: analysts.length > 0 ? analysts : DEFAULT_ANALYZE_SETTINGS.analysts,
+    analysts:
+      analysts.length > 0 ? analysts : DEFAULT_ANALYZE_SETTINGS.analysts,
     temperature:
-      typeof value.temperature === "number" && Number.isFinite(value.temperature)
+      typeof value.temperature === "number" &&
+      Number.isFinite(value.temperature)
         ? value.temperature
         : value.temperature === null
           ? null
@@ -417,11 +505,24 @@ export async function updateSettingsSection(
   throw new Error("设置已提交，但还没有写完")
 }
 
-export async function submitQuotesSync(pool = "default"): Promise<Job> {
-  return waitForJob(await postCommand({ type: "quotes.sync", pool }))
+export async function submitQuotesSync(
+  pool = "default",
+  codes?: string[]
+): Promise<Job> {
+  return submitCommand({
+    type: "quotes.sync",
+    pool,
+    ...(codes && codes.length > 0 ? { codes } : {}),
+  })
 }
 
-async function postCommand(payload: Record<string, unknown>): Promise<Job> {
+export async function submitStockSync(codes: string[]): Promise<Job> {
+  return submitCommand({ type: "stock.sync", codes })
+}
+
+export async function submitCommand(
+  payload: Record<string, unknown>
+): Promise<Job> {
   const response = await fetch(apiUrl("/api/commands"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -457,15 +558,17 @@ export async function waitForJob(job: Job): Promise<Job> {
 }
 
 export async function createPool(id: string, name: string): Promise<Job> {
-  return waitForJob(await postCommand({ type: "pool.create", pool: id, name }))
+  return waitForJob(
+    await submitCommand({ type: "pool.create", pool: id, name })
+  )
 }
 
 export async function deletePool(id: string): Promise<Job> {
-  return waitForJob(await postCommand({ type: "pool.delete", pool: id }))
+  return waitForJob(await submitCommand({ type: "pool.delete", pool: id }))
 }
 
 export async function addPoolCodes(pool: string, codes: string): Promise<Job> {
-  return waitForJob(await postCommand({ type: "pool.add", pool, codes }))
+  return waitForJob(await submitCommand({ type: "pool.add", pool, codes }))
 }
 
 export async function addPoolIndex(
@@ -473,29 +576,31 @@ export async function addPoolIndex(
   index: string,
   replace = false
 ): Promise<Job> {
-  return waitForJob(
-    await postCommand({
-      type: replace ? "pool.set" : "pool.add",
-      pool,
-      index,
-    })
-  )
+  return submitCommand({
+    type: replace ? "pool.set" : "pool.add",
+    pool,
+    index,
+    background: true,
+  })
 }
 
-export async function removePoolCodes(pool: string, codes: string[]): Promise<Job> {
-  return waitForJob(await postCommand({ type: "pool.remove", pool, codes }))
+export async function removePoolCodes(
+  pool: string,
+  codes: string[]
+): Promise<Job> {
+  return waitForJob(await submitCommand({ type: "pool.remove", pool, codes }))
 }
 
 export async function addStockCodes(codes: string): Promise<Job> {
-  return waitForJob(await postCommand({ type: "stock.add", codes }))
+  return waitForJob(await submitCommand({ type: "stock.add", codes }))
 }
 
 export async function addStockIndex(index: string): Promise<Job> {
-  return waitForJob(await postCommand({ type: "stock.add", index }))
+  return submitCommand({ type: "stock.add", index, background: true })
 }
 
 export async function removeStockCodes(codes: string[]): Promise<Job> {
-  return waitForJob(await postCommand({ type: "stock.remove", codes }))
+  return waitForJob(await submitCommand({ type: "stock.remove", codes }))
 }
 
 export async function submitAnalyzeRun(input: {
@@ -504,7 +609,7 @@ export async function submitAnalyzeRun(input: {
   date: string
   analysts: AnalystKind[]
 }): Promise<Job> {
-  return postCommand({
+  return submitCommand({
     type: "analyze.run",
     pool: input.pool,
     code: input.code,
@@ -607,6 +712,16 @@ export async function getJob(jobId: string): Promise<Job> {
   return (await response.json()) as Job
 }
 
+export async function cancelJob(jobId: string): Promise<Job> {
+  const response = await fetch(apiUrl(`/api/jobs/${jobId}/cancel`), {
+    method: "POST",
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as Job
+}
+
 export function watchJob(
   jobId: string,
   onLog: (line: string) => void,
@@ -617,11 +732,19 @@ export function watchJob(
   let settled = false
   source.onmessage = (event) => {
     const payload: unknown = JSON.parse(event.data)
-    if (typeof payload !== "object" || payload === null || !("stream" in payload)) {
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      !("stream" in payload)
+    ) {
       return
     }
     const stream = (payload as { stream: unknown }).stream
-    if (stream === "log" && "message" in payload && typeof payload.message === "string") {
+    if (
+      stream === "log" &&
+      "message" in payload &&
+      typeof payload.message === "string"
+    ) {
       onLog(payload.message)
       return
     }

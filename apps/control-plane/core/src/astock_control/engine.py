@@ -8,17 +8,25 @@ from typing import Any
 from astock_control.config import load_settings, preview_section, preview_update
 from astock_control.protocol import (
     IMMEDIATE_COMMANDS,
+    OPEN_JOB_STATUSES,
+    TERMINAL_JOB_STATUSES,
     Job,
+    JobCancelled,
     ProtocolError,
     Runner,
+    build_job_name,
     new_job_id,
     normalize_command,
     normalize_query,
+    parse_command_submission,
+    resolve_job_background,
+    resolve_job_timeout,
     utc_now,
 )
 
 LOG_LIMIT = 2000
 JOB_LIMIT = 100
+STOP_JOIN_SECONDS = 8
 
 
 class DispatchRunner:
@@ -27,12 +35,19 @@ class DispatchRunner:
     def __init__(self, mapping: dict[str, Runner]) -> None:
         self._mapping = mapping
 
-    def run(self, command: dict[str, Any], on_log: Callable[[str], None]) -> dict[str, Any]:
+    def run(
+        self,
+        command: dict[str, Any],
+        on_log: Callable[[str], None],
+        *,
+        timeout: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
         typ = str(command.get("type") or "")
         runner = self._mapping.get(typ)
         if runner is None:
             raise ValueError(f"没有执行器: {typ}")
-        return runner.run(command, on_log)
+        return runner.run(command, on_log, timeout=timeout, cancel_event=cancel_event)
 
 
 class Engine:
@@ -52,6 +67,7 @@ class Engine:
         self._cv = threading.Condition(self._lock)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._cancel_events: dict[str, threading.Event] = {}
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -61,15 +77,27 @@ class Engine:
         self._thread.start()
 
     def stop(self) -> None:
+        events: list[threading.Event] = []
+        with self._cv:
+            for job in self._jobs.values():
+                if job.status == "queued":
+                    self._mark_cancelled_locked(job)
+            events = list(self._cancel_events.values())
+            self._cv.notify_all()
+        for event in events:
+            event.set()
         self._stop.set()
         self._queue.put(None)
         if self._thread is not None:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=STOP_JOIN_SECONDS)
             self._thread = None
 
     def submit(self, raw: dict[str, Any]) -> Job:
         settings = load_settings()
-        command = normalize_command(raw, default_pool=settings["pool"])
+        payload, background_requested, timeout_requested = parse_command_submission(raw)
+        command = normalize_command(payload, default_pool=settings["pool"])
+        background = resolve_job_background(command, requested=background_requested)
+        timeout_seconds = resolve_job_timeout(command, requested=timeout_requested)
         if command["type"] == "quotes.sync":
             command.setdefault("sleep", float(settings["quotes"]["sleep"]))
             command.setdefault("adjust", str(settings["adjust"]))
@@ -96,8 +124,14 @@ class Engine:
             status="queued",
             command=command,
             created_at=utc_now(),
+            name=build_job_name(command),
+            timeout_seconds=timeout_seconds,
+            background=background,
         )
         with self._lock:
+            duplicate = self._find_duplicate_locked(command)
+            if duplicate is not None:
+                raise ProtocolError(f"已有相同任务在排队或运行：{duplicate.id}")
             self._jobs[job.id] = job
             self._order.append(job.id)
             self._trim_jobs_locked()
@@ -126,12 +160,31 @@ class Engine:
         with self._lock:
             return [self._copy_job(self._jobs[job_id]) for job_id in reversed(self._order) if job_id in self._jobs]
 
+    def cancel(self, job_id: str) -> Job | None:
+        event: threading.Event | None = None
+        with self._cv:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+            if job.status in TERMINAL_JOB_STATUSES:
+                raise ProtocolError("任务已结束，无法取消")
+            if job.status == "queued":
+                self._mark_cancelled_locked(job)
+                self._cv.notify_all()
+                return self._copy_job(job)
+            event = self._cancel_events.get(job_id)
+            self._cv.notify_all()
+            copied = self._copy_job(job)
+        if event is not None:
+            event.set()
+        return copied
+
     def wait_for_change(self, job_id: str, log_count: int, timeout: float = 0.3) -> Job | None:
         with self._cv:
             job = self._jobs.get(job_id)
             if job is None:
                 return None
-            if len(job.log) > log_count or job.status in {"succeeded", "failed"}:
+            if len(job.log) > log_count or job.status in TERMINAL_JOB_STATUSES:
                 return self._copy_job(job)
             self._cv.wait(timeout=timeout)
             job = self._jobs.get(job_id)
@@ -147,14 +200,32 @@ class Engine:
     def _execute(self, job_id: str) -> None:
         with self._cv:
             job = self._jobs.get(job_id)
-            if job is None:
+            if job is None or job.status == "cancelled":
                 return
             job.status = "running"
             job.started_at = utc_now()
             command = dict(job.command)
+            timeout = float(job.timeout_seconds)
+            cancel_event = threading.Event()
+            if self._stop.is_set():
+                cancel_event.set()
+            self._cancel_events[job_id] = cancel_event
             self._cv.notify_all()
         try:
-            result = self._runner.run(command, lambda line, _id=job_id: self._append_log(_id, line))
+            result = self._runner.run(
+                command,
+                lambda line, _id=job_id: self._append_log(_id, line),
+                timeout=timeout,
+                cancel_event=cancel_event,
+            )
+        except JobCancelled:
+            with self._cv:
+                job = self._jobs.get(job_id)
+                if job is not None:
+                    self._mark_cancelled_locked(job)
+                self._cancel_events.pop(job_id, None)
+                self._cv.notify_all()
+            return
         except Exception as exc:
             with self._cv:
                 job = self._jobs.get(job_id)
@@ -162,6 +233,7 @@ class Engine:
                     job.status = "failed"
                     job.error = str(exc)
                     job.finished_at = utc_now()
+                self._cancel_events.pop(job_id, None)
                 self._cv.notify_all()
             return
         with self._cv:
@@ -170,6 +242,7 @@ class Engine:
                 job.status = "succeeded"
                 job.result = result
                 job.finished_at = utc_now()
+            self._cancel_events.pop(job_id, None)
             self._cv.notify_all()
 
     def _append_log(self, job_id: str, line: str) -> None:
@@ -182,14 +255,30 @@ class Engine:
                 job.log = job.log[-LOG_LIMIT:]
             self._cv.notify_all()
 
+    def _find_duplicate_locked(self, command: dict[str, Any]) -> Job | None:
+        for job in self._jobs.values():
+            if job.status in OPEN_JOB_STATUSES and job.command == command:
+                return job
+        return None
+
     def _trim_jobs_locked(self) -> None:
         while len(self._order) > JOB_LIMIT:
-            old_id = self._order.pop(0)
-            old = self._jobs.get(old_id)
-            if old is not None and old.status in {"queued", "running"}:
-                self._order.insert(0, old_id)
+            oldest_terminal: str | None = None
+            for job_id in self._order:
+                job = self._jobs.get(job_id)
+                if job is not None and job.status in TERMINAL_JOB_STATUSES:
+                    oldest_terminal = job_id
+                    break
+            if oldest_terminal is None:
                 break
-            self._jobs.pop(old_id, None)
+            self._order.remove(oldest_terminal)
+            self._jobs.pop(oldest_terminal, None)
+
+    @staticmethod
+    def _mark_cancelled_locked(job: Job) -> None:
+        job.status = "cancelled"
+        job.error = "已取消"
+        job.finished_at = utc_now()
 
     @staticmethod
     def _copy_job(job: Job) -> Job:
@@ -199,6 +288,9 @@ class Engine:
             status=job.status,
             command=dict(job.command),
             created_at=job.created_at,
+            name=job.name,
+            timeout_seconds=job.timeout_seconds,
+            background=job.background,
             started_at=job.started_at,
             finished_at=job.finished_at,
             result=None if job.result is None else dict(job.result),

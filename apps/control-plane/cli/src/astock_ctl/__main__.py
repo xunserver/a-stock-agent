@@ -38,7 +38,8 @@ def _format_status(data: dict[str, Any]) -> str:
 
 
 def _format_job(job: dict[str, Any]) -> str:
-    line = f"{job['id']}  {job['status']:<10}  {job['type']}"
+    name = str(job.get("name") or job.get("type") or "")
+    line = f"{job['id']}  {job['status']:<10}  {name}"
     if job.get("error"):
         line += f"  {job['error']}"
     return line
@@ -148,6 +149,8 @@ def main() -> None:
     show.add_argument("job_id")
     logs = jobs_sub.add_parser("logs", help="跟踪任务日志直到结束", parents=[common])
     logs.add_argument("job_id")
+    cancel = jobs_sub.add_parser("cancel", help="取消排队或运行中的任务", parents=[common])
+    cancel.add_argument("job_id")
 
     args = parser.parse_args()
     try:
@@ -295,6 +298,13 @@ def _dispatch(args: argparse.Namespace) -> None:
         job = request("GET", f"/api/jobs/{args.job_id}")
         _print_json(job)
         return
+    if args.jobs_cmd == "cancel":
+        job = request("POST", f"/api/jobs/{args.job_id}/cancel")
+        if args.json:
+            _print_json(job)
+            return
+        print(_format_job(job))
+        return
     final = follow_events(args.job_id)
     if args.json:
         _print_json(final)
@@ -430,7 +440,7 @@ def _dispatch_stock(args: argparse.Namespace) -> None:
 
 
 def _finish_job(job: dict[str, Any], *, json_out: bool, wait: bool = False) -> None:
-    if wait and job.get("status") not in {"succeeded", "failed"}:
+    if wait and job.get("status") not in {"succeeded", "failed", "cancelled"}:
         print(f"任务 {job['id']}  {base_url()}", file=sys.stderr)
         job = follow_events(job["id"])
     if json_out:

@@ -16,7 +16,7 @@ from astock_control.adapters.pool import PoolRunner
 from astock_control.adapters.stock import StockRunner
 from astock_control.config import SettingsRunner
 from astock_control.engine import DispatchRunner, Engine
-from astock_control.protocol import ProtocolError
+from astock_control.protocol import ProtocolError, TERMINAL_JOB_STATUSES
 from astock_control.queries import handle_query
 
 
@@ -29,6 +29,8 @@ def create_app(engine: Engine | None = None) -> FastAPI:
             DispatchRunner(
                 {
                     "quotes.sync": IngestRunner(),
+                    "boards.sync": IngestRunner(),
+                    "stock.sync": IngestRunner(),
                     "analyze.run": AnalyzeRunner(),
                     "stock.add": StockRunner(),
                     "stock.remove": StockRunner(),
@@ -103,6 +105,13 @@ def create_app(engine: Engine | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"找不到任务: {job_id}")
         return job.to_dict()
 
+    @app.post("/api/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
+        job = _engine(request).cancel(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"找不到任务: {job_id}")
+        return job.to_dict()
+
     @app.get("/api/jobs/{job_id}/events")
     async def job_events(job_id: str, request: Request) -> StreamingResponse:
         engine = _engine(request)
@@ -119,7 +128,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
                 for line in job.log[seen:]:
                     yield _sse({"stream": "log", "message": line})
                 seen = len(job.log)
-                if job.status in {"succeeded", "failed"}:
+                if job.status in TERMINAL_JOB_STATUSES:
                     yield _sse(
                         {
                             "stream": "status",

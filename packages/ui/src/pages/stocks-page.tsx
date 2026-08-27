@@ -6,6 +6,7 @@ import {
   RefreshCwIcon,
 } from "lucide-react"
 
+import { useJobs } from "@/components/job-provider"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,16 +18,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -62,16 +62,28 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { TickerLink } from "@/components/ticker-link"
 import {
   addStockCodes,
   addStockIndex,
   queryStocks,
   removeStockCodes,
+  submitStockSync,
   type StockRow,
   type StocksList,
 } from "@/lib/api"
 import { INDEX_OPTIONS } from "@/lib/indexes"
+import { withQueuedHint } from "@/lib/jobs"
+import { tickerFromCode } from "@/lib/ticker"
+
+function stockId(stock: Pick<StockRow, "code" | "ticker">): string {
+  return stock.ticker || tickerFromCode(stock.code)
+}
 
 function poolLabel(stock: StockRow) {
   if (stock.pools.length === 0) {
@@ -82,11 +94,13 @@ function poolLabel(stock: StockRow) {
 }
 
 export function StocksPage() {
+  const { trackJob, jobs } = useJobs()
   const [listing, setListing] = useState<StocksList | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
 
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<"codes" | "index">("codes")
@@ -95,11 +109,18 @@ export function StocksPage() {
   const [removeCode, setRemoveCode] = useState<string | null>(null)
 
   const stocks = listing?.stocks ?? null
-  const unpooled = listing ? listing.count - listing.in_pool : undefined
+  const selectedCount = selected.size
+  const allSelected = Boolean(
+    stocks && stocks.length > 0 && selectedCount === stocks.length
+  )
+  const someSelected = selectedCount > 0 && !allSelected
 
   async function loadAll() {
     setError(null)
-    setListing(await queryStocks())
+    const next = await queryStocks()
+    setListing(next)
+    const codes = new Set(next.stocks.map((item) => item.code))
+    setSelected((prev) => new Set([...prev].filter((code) => codes.has(code))))
   }
 
   useEffect(() => {
@@ -142,13 +163,21 @@ export function StocksPage() {
       if (addMode === "codes") {
         await addStockCodes(addCodes)
         setNotice("已按代码加入系统")
+        await loadAll()
       } else {
-        await addStockIndex(addIndex)
-        setNotice(`已按 ${addIndex} 加入系统`)
+        const index = addIndex
+        const job = await addStockIndex(index)
+        trackJob(job, {
+          onSuccess: async () => {
+            setNotice(`已按 ${index} 加入系统`)
+            await loadAll()
+          },
+          onFailure: (done) => setError(done.error || "按指数加入失败"),
+        })
+        setNotice(withQueuedHint(`已提交 ${index} 加入任务`, jobs, job))
       }
       setAddOpen(false)
       setAddCodes("")
-      await loadAll()
     })
   }
 
@@ -156,9 +185,48 @@ export function StocksPage() {
     await run(async () => {
       await removeStockCodes([code])
       setRemoveCode(null)
-      setNotice(`已从系统移除 ${code}`)
+      setNotice(`已从系统移除 ${tickerFromCode(code)}`)
       await loadAll()
     })
+  }
+
+  async function onSync(codes: string[]) {
+    if (codes.length === 0) {
+      return
+    }
+    await run(async () => {
+      const label =
+        codes.length === 1 ? tickerFromCode(codes[0]) : `${codes.length} 只`
+      const job = await submitStockSync(codes)
+      trackJob(job, {
+        onSuccess: async () => {
+          setNotice(`已同步 ${label} 的资料与行情`)
+          await loadAll()
+        },
+        onFailure: (done) => setError(done.error || "同步失败"),
+      })
+      setNotice(withQueuedHint(`已提交 ${label} 的同步任务`, jobs, job))
+    })
+  }
+
+  function toggleOne(code: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(code)
+      } else {
+        next.delete(code)
+      }
+      return next
+    })
+  }
+
+  function toggleAll(checked: boolean) {
+    if (!stocks || !checked) {
+      setSelected(new Set())
+      return
+    }
+    setSelected(new Set(stocks.map((item) => item.code)))
   }
 
   return (
@@ -177,21 +245,20 @@ export function StocksPage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="系统内" value={listing?.count} loading={loading} />
-        <Stat label="在池中" value={listing?.in_pool} loading={loading} />
-        <Stat label="未入池" value={unpooled} loading={loading} />
-        <Stat label="已有资料" value={listing?.profile_filled} loading={loading} />
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>股票</CardTitle>
-          <CardDescription>
-            先决定系统里有哪些票。加入股票池之后，就不能从这里移除。
-          </CardDescription>
           <CardAction>
             <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy || selectedCount === 0}
+                onClick={() => void onSync([...selected])}
+              >
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                同步所选{selectedCount > 0 ? ` ${selectedCount}` : ""}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -232,21 +299,51 @@ export function StocksPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>代码</TableHead>
-                  <TableHead>名称</TableHead>
+                  <TableHead className="w-8">
+                    <Checkbox
+                      aria-label="全选"
+                      checked={allSelected}
+                      indeterminate={someSelected}
+                      disabled={busy}
+                      onCheckedChange={(checked) => toggleAll(checked)}
+                    />
+                  </TableHead>
+                  <TableHead>股票</TableHead>
                   <TableHead>行业</TableHead>
                   <TableHead>最新 K</TableHead>
-                  <TableHead>所在池</TableHead>
-                  <TableHead className="w-20">操作</TableHead>
+                  <TableHead className="w-28">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {stocks.map((stock) => {
                   const blocked = stock.pools.length > 0
+                  const checked = selected.has(stock.code)
                   return (
-                    <TableRow key={stock.code}>
-                      <TableCell className="font-mono">{stock.code}</TableCell>
-                      <TableCell>{stock.name || "—"}</TableCell>
+                    <TableRow
+                      key={stock.code}
+                      data-state={checked ? "selected" : undefined}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          aria-label={`选择 ${stockId(stock)}`}
+                          checked={checked}
+                          disabled={busy}
+                          onCheckedChange={(next) =>
+                            toggleOne(stock.code, next === true)
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TickerLink
+                          code={stock.code}
+                          className="inline-flex items-baseline gap-2"
+                        >
+                          <span className="font-mono">{stockId(stock)}</span>
+                          {stock.name ? (
+                            <span className="font-sans">{stock.name}</span>
+                          ) : null}
+                        </TickerLink>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">
                         {stock.industry || "—"}
                       </TableCell>
@@ -254,40 +351,39 @@ export function StocksPage() {
                         {stock.last_bar || "—"}
                       </TableCell>
                       <TableCell>
-                        {blocked ? (
-                          <div className="flex flex-wrap gap-1">
-                            {stock.pools.map((pool) => (
-                              <Badge key={pool.id} variant="secondary">
-                                {pool.name || pool.id}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">未入池</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {blocked ? (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={<span className="inline-flex" />}
-                            >
-                              <Button variant="ghost" size="xs" disabled>
-                                移除
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{poolLabel(stock)}</TooltipContent>
-                          </Tooltip>
-                        ) : (
+                        <div className="flex flex-wrap gap-1">
                           <Button
                             variant="ghost"
                             size="xs"
                             disabled={busy}
-                            onClick={() => setRemoveCode(stock.code)}
+                            onClick={() => void onSync([stock.code])}
                           >
-                            移除
+                            同步
                           </Button>
-                        )}
+                          {blocked ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={<span className="inline-flex" />}
+                              >
+                                <Button variant="ghost" size="xs" disabled>
+                                  移除
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {poolLabel(stock)}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              disabled={busy}
+                              onClick={() => setRemoveCode(stock.code)}
+                            >
+                              移除
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -337,7 +433,10 @@ export function StocksPage() {
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
-          <form className="flex flex-col gap-4" onSubmit={(event) => void onAdd(event)}>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => void onAdd(event)}
+          >
             <DialogHeader>
               <DialogTitle>加入系统</DialogTitle>
               <DialogDescription>
@@ -370,10 +469,12 @@ export function StocksPage() {
                     id="stock-add-codes"
                     required
                     value={addCodes}
-                    placeholder="000001, 600519"
+                    placeholder="000001.SZ, 600519.SS"
                     onChange={(event) => setAddCodes(event.target.value)}
                   />
-                  <FieldDescription>逗号或换行分隔，6 位代码。</FieldDescription>
+                  <FieldDescription>
+                    逗号或换行分隔。6 位代码或带交易所后缀，例如 000001.SZ。
+                  </FieldDescription>
                 </Field>
               ) : (
                 <Field>
@@ -387,7 +488,7 @@ export function StocksPage() {
                       }
                     }}
                     variant="outline"
-                    spacing={0}
+                    className="w-full max-w-full flex-wrap"
                   >
                     {INDEX_OPTIONS.map((option) => (
                       <ToggleGroupItem key={option.value} value={option.value}>
@@ -418,7 +519,9 @@ export function StocksPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>从系统移除 {removeCode}？</AlertDialogTitle>
+            <AlertDialogTitle>
+              从系统移除 {removeCode ? tickerFromCode(removeCode) : ""}？
+            </AlertDialogTitle>
             <AlertDialogDescription>
               只从股票目录拿掉，不删日线。若还在股票池里，这里会拒绝。
             </AlertDialogDescription>
@@ -442,24 +545,5 @@ export function StocksPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
-}
-
-function Stat({
-  label,
-  value,
-  loading,
-}: {
-  label: string
-  value: number | undefined
-  loading: boolean
-}) {
-  return (
-    <Card size="sm">
-      <CardHeader>
-        <CardDescription>{label}</CardDescription>
-        <CardTitle>{loading && value === undefined ? "—" : (value ?? "—")}</CardTitle>
-      </CardHeader>
-    </Card>
   )
 }

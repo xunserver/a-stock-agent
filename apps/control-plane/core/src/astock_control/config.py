@@ -25,7 +25,15 @@ config_path = system_db_path
 
 
 class SettingsRunner:
-    def run(self, command: dict[str, Any], on_log: Callable[[str], None]) -> dict[str, Any]:
+    def run(
+        self,
+        command: dict[str, Any],
+        on_log: Callable[[str], None],
+        *,
+        timeout: float | None = None,
+        cancel_event=None,
+    ) -> dict[str, Any]:
+        del timeout, cancel_event
         if command.get("type") != "settings.update":
             raise ValueError(f"设置执行器不支持命令: {command.get('type')}")
         module = str(command.get("module") or "").strip()

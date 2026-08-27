@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router"
-import {
-  CircleAlertIcon,
-  FileTextIcon,
-  InfoIcon,
-} from "lucide-react"
+import { CircleAlertIcon, FileTextIcon, InfoIcon } from "lucide-react"
 
+import { useJobs } from "@/components/job-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -46,6 +43,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { TickerLink } from "@/components/ticker-link"
 import {
   Table,
   TableBody,
@@ -70,11 +68,18 @@ import {
   type AnalyzeReportDetail,
   type AnalyzeReportSummary,
   type Job,
-  type JobStatus,
   type PoolMember,
   type PoolSummary,
   type Settings,
 } from "@/lib/api"
+import {
+  formatJobDateTime,
+  isOpenJob,
+  jobQueuedHint,
+  jobStatusLabel,
+  jobStatusVariant,
+  pickJobString,
+} from "@/lib/jobs"
 
 const ANALYST_OPTIONS: { id: AnalystKind; label: string }[] = [
   { id: "market", label: "技术" },
@@ -106,49 +111,15 @@ function isAnalyst(value: string): value is AnalystKind {
   )
 }
 
-function isOpenStatus(status: JobStatus) {
-  return status === "queued" || status === "running"
-}
-
-function statusLabel(status: JobStatus) {
-  if (status === "queued") return "排队"
-  if (status === "running") return "运行中"
-  if (status === "succeeded") return "成功"
-  return "失败"
-}
-
-function statusVariant(status: JobStatus): "outline" | "secondary" | "default" | "destructive" {
-  if (status === "queued") return "outline"
-  if (status === "running") return "secondary"
-  if (status === "succeeded") return "default"
-  return "destructive"
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
 }
 
-function readString(source: Record<string, unknown>, key: string): string | null {
-  const value = source[key]
-  return typeof value === "string" && value.trim() ? value : null
-}
-
-function pickJobString(job: Job, key: string): string | null {
-  return readString(asRecord(job.result), key) ?? readString(job.command, key)
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString("zh-CN", { hour12: false })
-}
-
 function pickOpenAnalyzeJob(jobs: Job[]): Job | null {
   const open = jobs.filter(
-    (job) => job.type === "analyze.run" && isOpenStatus(job.status)
+    (job) => job.type === "analyze.run" && isOpenJob(job.status)
   )
   return (
     open.find((job) => job.status === "running") ??
@@ -174,7 +145,11 @@ function collectMarkdown(report: AnalyzeReportDetail, keys: string[]): string {
     "4_risk",
     "5_portfolio",
   ]) {
-    bags.push(asRecord(root[nested]), asRecord(sections[nested]), asRecord(meta[nested]))
+    bags.push(
+      asRecord(root[nested]),
+      asRecord(sections[nested]),
+      asRecord(meta[nested])
+    )
   }
   const parts: string[] = []
   for (const key of keys) {
@@ -236,6 +211,7 @@ function reportSectionText(
 }
 
 export function AnalyzePage() {
+  const { trackJob, jobs } = useJobs()
   const [searchParams, setSearchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -276,7 +252,11 @@ export function AnalyzePage() {
   filterByCodeRef.current = filterByCode
 
   const poolItems = useMemo(
-    () => pools.map((pool) => ({ label: `${pool.name} · ${pool.id}`, value: pool.id })),
+    () =>
+      pools.map((pool) => ({
+        label: `${pool.name} · ${pool.id}`,
+        value: pool.id,
+      })),
     [pools]
   )
   const memberItems = useMemo(
@@ -320,7 +300,7 @@ export function AnalyzePage() {
     stopWatch()
     setJob(next)
     skipLogsRef.current = existingLogCount
-    if (!isOpenStatus(next.status)) {
+    if (!isOpenJob(next.status)) {
       return
     }
     unwatchRef.current = watchJob(
@@ -336,6 +316,11 @@ export function AnalyzePage() {
         setJob(done)
         if (done.log?.length) {
           setLogs(done.log)
+        }
+        if (!isOpenJob(done.status)) {
+          void listJobs().then((jobs) => {
+            setHasRunning(jobs.some((item) => isOpenJob(item.status)))
+          })
         }
         if (done.status === "succeeded") {
           const reportCode = pickJobString(done, "code")
@@ -358,7 +343,9 @@ export function AnalyzePage() {
 
   async function loadMembers(nextPool: string, preferredCode?: string | null) {
     const listing = await queryPoolList(nextPool)
-    const active = listing.members.filter((member) => member.status === "active")
+    const active = listing.members.filter(
+      (member) => member.status === "active"
+    )
     setMembers(listing.members)
     const nextCode =
       (preferredCode && active.some((member) => member.code === preferredCode)
@@ -387,7 +374,11 @@ export function AnalyzePage() {
     }
   }
 
-  async function loadReport(nextCode: string, nextDate: string, runId?: string) {
+  async function loadReport(
+    nextCode: string,
+    nextDate: string,
+    runId?: string
+  ) {
     setReportLoading(true)
     setError(null)
     try {
@@ -542,8 +533,11 @@ export function AnalyzePage() {
       })
       setLogs(next.log ?? [])
       attachJob(next, next.log?.length ?? 0)
+      trackJob(next)
       const jobs = await listJobs()
-      setHasRunning(jobs.some((item) => item.status === "running" || item.id === next.id))
+      setHasRunning(
+        jobs.some((item) => item.status === "running" || item.id === next.id)
+      )
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "提交失败")
     } finally {
@@ -552,9 +546,7 @@ export function AnalyzePage() {
   }
 
   const decision =
-    job && job.status === "succeeded"
-      ? pickJobString(job, "decision")
-      : null
+    job && job.status === "succeeded" ? pickJobString(job, "decision") : null
   const openedText = opened ? reportSectionText(opened, section) : ""
 
   return (
@@ -570,7 +562,8 @@ export function AnalyzePage() {
         <InfoIcon />
         <AlertTitle>行情来源</AlertTitle>
         <AlertDescription>
-          第 1 期行情来自 Yahoo，不是本地 market.db；A 股覆盖一般，价格可能和股票池里的日线不一致。
+          第 1 期行情来自 Yahoo，不是本地 market.db；A
+          股覆盖一般，价格可能和股票池里的日线不一致。
         </AlertDescription>
       </Alert>
 
@@ -615,32 +608,40 @@ export function AnalyzePage() {
               </Field>
               <Field>
                 <FieldLabel htmlFor="analyze-code">股票</FieldLabel>
-                <Select
-                  items={memberItems}
-                  value={code || null}
-                  onValueChange={(value) => {
-                    void onSelectCode(typeof value === "string" ? value : null)
-                  }}
-                >
-                  <SelectTrigger id="analyze-code" className="min-w-56">
-                    <SelectValue placeholder="选择股票" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {memberItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Select
+                    items={memberItems}
+                    value={code || null}
+                    onValueChange={(value) => {
+                      void onSelectCode(
+                        typeof value === "string" ? value : null
+                      )
+                    }}
+                  >
+                    <SelectTrigger id="analyze-code" className="min-w-56">
+                      <SelectValue placeholder="选择股票" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {memberItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {code ? <TickerLink code={code} /> : null}
+                </div>
                 {selectedMember?.last_bar ? (
                   <FieldDescription>
-                    库里最新日线 {selectedMember.last_bar}。第 1 期不强制必须是交易日。
+                    库里最新日线 {selectedMember.last_bar}。第 1
+                    期不强制必须是交易日。
                   </FieldDescription>
                 ) : (
-                  <FieldDescription>没有日线时，请手动填日期。</FieldDescription>
+                  <FieldDescription>
+                    没有日线时，请手动填日期。
+                  </FieldDescription>
                 )}
               </Field>
               <Field>
@@ -675,7 +676,8 @@ export function AnalyzePage() {
                   ))}
                 </ToggleGroup>
                 <FieldDescription>
-                  默认跟系统设置。情绪分析师依赖 Reddit / StockTwits，A 股几乎没用。
+                  默认跟系统设置。情绪分析师依赖 Reddit / StockTwits，A
+                  股几乎没用。
                 </FieldDescription>
               </Field>
               {needsKey || needsBackend || needsModels ? (
@@ -700,7 +702,9 @@ export function AnalyzePage() {
             {submitting ? <Spinner data-icon="inline-start" /> : null}
             开始分析
           </Button>
-          <span className="text-sm text-muted-foreground">可能需要十几分钟。</span>
+          <span className="text-sm text-muted-foreground">
+            可能需要十几分钟。
+          </span>
         </CardFooter>
       </Card>
 
@@ -709,12 +713,14 @@ export function AnalyzePage() {
           <CardTitle>本次运行</CardTitle>
           <CardDescription>
             {job
-              ? `${job.type} · ${job.id}`
+              ? [job.id, jobQueuedHint(jobs, job)].filter(Boolean).join(" · ")
               : "提交后会在这里跟日志。刷新页面会接上还没结束的 analyze.run。"}
           </CardDescription>
           {job ? (
             <CardAction>
-              <Badge variant={statusVariant(job.status)}>{statusLabel(job.status)}</Badge>
+              <Badge variant={jobStatusVariant(job.status)}>
+                {jobStatusLabel(job.status)}
+              </Badge>
             </CardAction>
           ) : null}
         </CardHeader>
@@ -722,7 +728,7 @@ export function AnalyzePage() {
           {job ? (
             <div className="flex flex-col gap-3">
               <ScrollArea className="h-72 rounded-lg border">
-                <pre className="whitespace-pre-wrap p-3 font-mono text-sm">
+                <pre className="p-3 font-mono text-sm whitespace-pre-wrap">
                   {logs.length > 0 ? logs.join("\n") : "还没有日志。"}
                 </pre>
                 <div ref={logEndRef} />
@@ -749,7 +755,11 @@ export function AnalyzePage() {
                       const reportDate = pickJobString(job, "date")
                       const runId = pickJobString(job, "run_id")
                       if (reportCode && reportDate) {
-                        void loadReport(reportCode, reportDate, runId ?? undefined)
+                        void loadReport(
+                          reportCode,
+                          reportDate,
+                          runId ?? undefined
+                        )
                       }
                       reportCardRef.current?.scrollIntoView({ block: "start" })
                     }}
@@ -816,13 +826,17 @@ export function AnalyzePage() {
                   </TableHeader>
                   <TableBody>
                     {reports.map((item) => (
-                      <TableRow key={`${item.code}-${item.date}-${item.run_id}`}>
-                        <TableCell className="font-mono">{item.code}</TableCell>
+                      <TableRow
+                        key={`${item.code}-${item.date}-${item.run_id}`}
+                      >
+                        <TableCell className="font-mono">
+                          <TickerLink code={item.code} />
+                        </TableCell>
                         <TableCell>{item.name || "—"}</TableCell>
                         <TableCell className="font-mono">{item.date}</TableCell>
                         <TableCell>{item.decision || "—"}</TableCell>
                         <TableCell className="text-muted-foreground">
-                          {formatDateTime(item.created_at)}
+                          {formatJobDateTime(item.created_at)}
                         </TableCell>
                         <TableCell>
                           <Button
@@ -866,9 +880,12 @@ export function AnalyzePage() {
                 <Skeleton className="h-40 w-full" />
               ) : opened ? (
                 <div className="flex flex-col gap-3">
-                  <FieldDescription>
-                    {opened.code} {opened.name || opened.meta?.name || ""} · {opened.date}{" "}
-                    · {opened.decision || opened.meta?.decision || "—"}
+                  <FieldDescription className="flex flex-wrap items-center gap-x-2">
+                    <TickerLink code={opened.code} />
+                    <span>
+                      {opened.name || opened.meta?.name || ""} · {opened.date} ·{" "}
+                      {opened.decision || opened.meta?.decision || "—"}
+                    </span>
                   </FieldDescription>
                   <Tabs
                     value={section}
@@ -878,16 +895,23 @@ export function AnalyzePage() {
                       }
                     }}
                   >
-                    <TabsList variant="line" className="h-auto w-full flex-wrap justify-start">
+                    <TabsList
+                      variant="line"
+                      className="h-auto w-full flex-wrap justify-start"
+                    >
                       {REPORT_SECTIONS.map((item) => (
-                        <TabsTrigger key={item.id} value={item.id} className="flex-none">
+                        <TabsTrigger
+                          key={item.id}
+                          value={item.id}
+                          className="flex-none"
+                        >
                           {item.label}
                         </TabsTrigger>
                       ))}
                     </TabsList>
                     {REPORT_SECTIONS.map((item) => (
                       <TabsContent key={item.id} value={item.id}>
-                        <pre className="whitespace-pre-wrap text-sm">
+                        <pre className="text-sm whitespace-pre-wrap">
                           {item.id === section
                             ? openedText || "这一段没有内容。"
                             : ""}

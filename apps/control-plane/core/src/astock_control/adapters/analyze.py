@@ -70,14 +70,23 @@ def analyze_child_env(analyze: dict[str, Any]) -> dict[str, str]:
 
 
 class AnalyzeRunner:
-    def run(self, command: dict[str, Any], on_log: Callable[[str], None]) -> dict[str, Any]:
+    def run(
+        self,
+        command: dict[str, Any],
+        on_log: Callable[[str], None],
+        *,
+        timeout: float | None = None,
+        cancel_event=None,
+    ) -> dict[str, Any]:
         if command.get("type") != "analyze.run":
             raise ValueError(f"分析执行器不支持命令: {command.get('type')}")
         argv = analyze_run_argv(command)
         on_log("$ " + " ".join(argv))
         settings = load_settings()
         extra = analyze_child_env(settings.get("analyze") or {})
-        stdout = _run_uv(argv, on_log, extra_env=extra)
+        stdout = _run_uv(
+            argv, on_log, extra_env=extra, timeout=timeout, cancel_event=cancel_event
+        )
         result = parse_trailing_json(stdout)
         if result is None:
             raise RuntimeError("analyze 没有返回 JSON 结果")

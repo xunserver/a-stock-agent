@@ -9,6 +9,17 @@ from astock_core.paths import DATA_DIR, DB_PATH, DEFAULT_ADJUST, DEFAULT_POOL_ID
 
 _POOL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
 
+BAR_TABLES = {
+    "daily": "bars_daily",
+    "weekly": "bars_weekly",
+    "monthly": "bars_monthly",
+}
+INGEST_KINDS = {
+    "daily": "stock",
+    "weekly": "stock_weekly",
+    "monthly": "stock_monthly",
+}
+
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -44,6 +55,46 @@ CREATE TABLE IF NOT EXISTS bars_daily (
 
 CREATE INDEX IF NOT EXISTS idx_bars_daily_date
     ON bars_daily (trade_date);
+
+CREATE TABLE IF NOT EXISTS bars_weekly (
+    code TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    open REAL,
+    close REAL,
+    high REAL,
+    low REAL,
+    volume REAL,
+    amount REAL,
+    amplitude REAL,
+    pct_chg REAL,
+    change_amount REAL,
+    turnover REAL,
+    adjust TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date, adjust)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bars_weekly_date
+    ON bars_weekly (trade_date);
+
+CREATE TABLE IF NOT EXISTS bars_monthly (
+    code TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    open REAL,
+    close REAL,
+    high REAL,
+    low REAL,
+    volume REAL,
+    amount REAL,
+    amplitude REAL,
+    pct_chg REAL,
+    change_amount REAL,
+    turnover REAL,
+    adjust TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date, adjust)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bars_monthly_date
+    ON bars_monthly (trade_date);
 
 CREATE TABLE IF NOT EXISTS index_daily (
     code TEXT NOT NULL,
@@ -98,6 +149,27 @@ CREATE TABLE IF NOT EXISTS pool_members (
 
 CREATE INDEX IF NOT EXISTS idx_pool_members_status
     ON pool_members (pool_id, status);
+
+CREATE TABLE IF NOT EXISTS boards (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'em',
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_boards_kind
+    ON boards (kind);
+
+CREATE TABLE IF NOT EXISTS board_members (
+    board_id TEXT NOT NULL,
+    code TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (board_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_board_members_code
+    ON board_members (code);
 """
 
 
@@ -119,7 +191,7 @@ def _ymd(value: date | datetime | str) -> str:
 
 
 class MarketDB:
-    """SQLite 行情库：日历、股票列表、日线、采集进度。"""
+    """SQLite 行情库：日历、股票列表、日/周/月线、采集进度。"""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path else DB_PATH
@@ -149,6 +221,27 @@ class MarketDB:
             ("is_st", "INTEGER NOT NULL DEFAULT 0"),
             ("is_suspended", "INTEGER NOT NULL DEFAULT 0"),
             ("suspend_info", "TEXT"),
+            ("region", "TEXT"),
+            ("pe_dyn", "REAL"),
+            ("pe_static", "REAL"),
+            ("pb", "REAL"),
+            ("volume_ratio", "REAL"),
+            ("high_limit", "REAL"),
+            ("low_limit", "REAL"),
+            ("pre_close", "REAL"),
+            ("avg_price", "REAL"),
+            ("outer_vol", "REAL"),
+            ("inner_vol", "REAL"),
+            ("eps", "REAL"),
+            ("bps", "REAL"),
+            ("roe", "REAL"),
+            ("revenue", "REAL"),
+            ("revenue_yoy", "REAL"),
+            ("net_profit", "REAL"),
+            ("net_profit_yoy", "REAL"),
+            ("gross_margin", "REAL"),
+            ("net_margin", "REAL"),
+            ("debt_ratio", "REAL"),
         ]
         with self.conn:
             for name, decl in columns:
@@ -168,6 +261,27 @@ class MarketDB:
             "is_st",
             "is_suspended",
             "suspend_info",
+            "region",
+            "pe_dyn",
+            "pe_static",
+            "pb",
+            "volume_ratio",
+            "high_limit",
+            "low_limit",
+            "pre_close",
+            "avg_price",
+            "outer_vol",
+            "inner_vol",
+            "eps",
+            "bps",
+            "roe",
+            "revenue",
+            "revenue_yoy",
+            "net_profit",
+            "net_profit_yoy",
+            "gross_margin",
+            "net_margin",
+            "debt_ratio",
         }
         data = {key: fields[key] for key in allowed if key in fields}
         assignments = ", ".join(f"{key} = excluded.{key}" for key in ("name", *data))
@@ -214,6 +328,108 @@ class MarketDB:
             (code, adjust),
         ).fetchone()
         return dict(row) if row else None
+
+    def list_daily_bars(
+        self,
+        code: str,
+        *,
+        adjust: str = DEFAULT_ADJUST,
+        limit: int | None = None,
+    ) -> list[dict]:
+        return self.list_bars(code, period="daily", adjust=adjust, limit=limit)
+
+    def list_bars(
+        self,
+        code: str,
+        *,
+        period: str = "daily",
+        adjust: str = DEFAULT_ADJUST,
+        limit: int | None = None,
+    ) -> list[dict]:
+        if period == "yearly":
+            return self.list_yearly_bars(code, adjust=adjust, limit=limit)
+        table = BAR_TABLES.get(period)
+        if table is None:
+            raise ValueError(f"不支持的 K 线周期: {period}")
+        sql = f"""
+            SELECT trade_date, open, close, high, low, volume, amount,
+                   pct_chg, turnover, amplitude, change_amount
+            FROM {table}
+            WHERE code = ? AND adjust = ?
+            ORDER BY trade_date DESC
+        """
+        params: list = [code, adjust]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self.conn.execute(sql, params).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    def list_yearly_bars(
+        self,
+        code: str,
+        *,
+        adjust: str = DEFAULT_ADJUST,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """年 K：优先用月线聚合，没有月线再用日线。"""
+        source = self.list_bars(code, period="monthly", adjust=adjust)
+        if not source:
+            source = self.list_bars(code, period="daily", adjust=adjust)
+        if not source:
+            return []
+
+        grouped: dict[str, list[dict]] = {}
+        for bar in source:
+            year = str(bar.get("trade_date") or "")[:4]
+            if len(year) != 4:
+                continue
+            grouped.setdefault(year, []).append(bar)
+
+        yearly: list[dict] = []
+        prev_close: float | None = None
+        for year in sorted(grouped):
+            rows = grouped[year]
+            first = rows[0]
+            last = rows[-1]
+            opens = [row["open"] for row in rows if row.get("open") is not None]
+            highs = [row["high"] for row in rows if row.get("high") is not None]
+            lows = [row["low"] for row in rows if row.get("low") is not None]
+            close = last.get("close")
+            open_ = opens[0] if opens else first.get("open")
+            high = max(highs) if highs else None
+            low = min(lows) if lows else None
+            volume = sum(float(row["volume"]) for row in rows if row.get("volume") is not None) or None
+            amount = sum(float(row["amount"]) for row in rows if row.get("amount") is not None) or None
+            change_amount = None
+            pct_chg = None
+            if close is not None and prev_close not in (None, 0):
+                change_amount = float(close) - float(prev_close)
+                pct_chg = change_amount / float(prev_close) * 100
+            amplitude = None
+            if high is not None and low is not None and prev_close not in (None, 0):
+                amplitude = (float(high) - float(low)) / float(prev_close) * 100
+            yearly.append(
+                {
+                    "trade_date": last.get("trade_date"),
+                    "open": open_,
+                    "close": close,
+                    "high": high,
+                    "low": low,
+                    "volume": volume,
+                    "amount": amount,
+                    "pct_chg": pct_chg,
+                    "turnover": None,
+                    "amplitude": amplitude,
+                    "change_amount": change_amount,
+                }
+            )
+            if close is not None:
+                prev_close = float(close)
+
+        if limit is not None:
+            return yearly[-limit:]
+        return yearly
 
     def bar_summary(self, code: str, adjust: str = DEFAULT_ADJUST) -> dict:
         row = self.conn.execute(
@@ -319,6 +535,92 @@ class MarketDB:
             "SELECT code FROM stocks ORDER BY code"
         ).fetchall()
         return [row["code"] for row in rows]
+
+    def upsert_boards(self, rows: list[tuple[str, str, str, str]]) -> int:
+        """rows: (id, kind, name, source)."""
+        if not rows:
+            return 0
+        now = datetime.now().isoformat(timespec="seconds")
+        payload = [(board_id, kind, name, source, now) for board_id, kind, name, source in rows]
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT INTO boards (id, kind, name, source, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    kind = excluded.kind,
+                    name = excluded.name,
+                    source = excluded.source,
+                    updated_at = excluded.updated_at
+                """,
+                payload,
+            )
+        return len(payload)
+
+    def replace_board_members(self, board_id: str, codes: list[str]) -> int:
+        """按板块替换成员；只保留已在 stocks 表中的代码。"""
+        now = datetime.now().isoformat(timespec="seconds")
+        unique = sorted({str(code).zfill(6) for code in codes if str(code).strip()})
+        if unique:
+            placeholders = ",".join("?" for _ in unique)
+            allowed = {
+                row["code"]
+                for row in self.conn.execute(
+                    f"SELECT code FROM stocks WHERE code IN ({placeholders})",
+                    unique,
+                ).fetchall()
+            }
+            unique = sorted(code for code in unique if code in allowed)
+        with self.conn:
+            self.conn.execute("DELETE FROM board_members WHERE board_id = ?", (board_id,))
+            if unique:
+                self.conn.executemany(
+                    """
+                    INSERT INTO board_members (board_id, code, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    [(board_id, code, now) for code in unique],
+                )
+        return len(unique)
+
+    def list_boards(self, *, kind: str | None = None, source: str | None = "em") -> list[dict]:
+        clauses: list[str] = []
+        params: list[str] = []
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if source:
+            clauses.append("source = ?")
+            params.append(source)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.conn.execute(
+            f"""
+            SELECT id, kind, name, source, updated_at
+            FROM boards
+            {where}
+            ORDER BY kind, name
+            """,
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def boards_for_code(self, code: str, *, source: str | None = "em") -> list[dict]:
+        params: list[str] = [code.zfill(6)]
+        source_clause = ""
+        if source:
+            source_clause = "AND b.source = ?"
+            params.append(source)
+        rows = self.conn.execute(
+            f"""
+            SELECT b.id, b.kind, b.name, b.source, b.updated_at
+            FROM board_members m
+            JOIN boards b ON b.id = m.board_id
+            WHERE m.code = ? {source_clause}
+            ORDER BY b.kind, b.name
+            """,
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def list_stocks(self, *, adjust: str = DEFAULT_ADJUST) -> list[dict]:
         rows = self.conn.execute(
@@ -727,11 +1029,19 @@ class MarketDB:
                 fill.append(code)
         return {"full": full, "fill": fill, "current": current}
 
-    def last_bar_date(self, code: str, adjust: str = DEFAULT_ADJUST) -> str | None:
+    def last_bar_date(
+        self,
+        code: str,
+        adjust: str = DEFAULT_ADJUST,
+        period: str = "daily",
+    ) -> str | None:
+        table = BAR_TABLES.get(period)
+        if table is None:
+            raise ValueError(f"不支持的 K 线周期: {period}")
         row = self.conn.execute(
-            """
+            f"""
             SELECT MAX(trade_date) AS d
-            FROM bars_daily
+            FROM {table}
             WHERE code = ? AND adjust = ?
             """,
             (code, adjust),
@@ -745,13 +1055,16 @@ class MarketDB:
         ).fetchone()
         return row["d"] if row and row["d"] else None
 
-    def upsert_bars(self, rows: list[tuple]) -> int:
+    def upsert_bars(self, rows: list[tuple], *, period: str = "daily") -> int:
         if not rows:
             return 0
+        table = BAR_TABLES.get(period)
+        if table is None:
+            raise ValueError(f"不支持的 K 线周期: {period}")
         with self.conn:
             self.conn.executemany(
-                """
-                INSERT INTO bars_daily (
+                f"""
+                INSERT INTO {table} (
                     code, trade_date, open, close, high, low,
                     volume, amount, amplitude, pct_chg, change_amount,
                     turnover, adjust
@@ -823,7 +1136,18 @@ class MarketDB:
             )
 
     def counts(self, pool_id: str = DEFAULT_POOL_ID) -> dict[str, int]:
-        tables = ("stocks", "trade_calendar", "bars_daily", "index_daily", "universe_members", "pool_members")
+        tables = (
+            "stocks",
+            "trade_calendar",
+            "bars_daily",
+            "bars_weekly",
+            "bars_monthly",
+            "index_daily",
+            "universe_members",
+            "pool_members",
+            "boards",
+            "board_members",
+        )
         out: dict[str, int] = {}
         for table in tables:
             row = self.conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()

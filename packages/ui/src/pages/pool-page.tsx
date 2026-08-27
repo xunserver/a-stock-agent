@@ -8,6 +8,7 @@ import {
   Trash2Icon,
 } from "lucide-react"
 
+import { useJobs } from "@/components/job-provider"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -75,6 +76,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { TickerLink } from "@/components/ticker-link"
 import {
   addPoolCodes,
   addPoolIndex,
@@ -90,6 +92,8 @@ import {
   type Status,
 } from "@/lib/api"
 import { INDEX_OPTIONS } from "@/lib/indexes"
+import { withQueuedHint } from "@/lib/jobs"
+import { tickerFromCode } from "@/lib/ticker"
 
 function memberStatusLabel(status: string) {
   if (status === "active") return "在池"
@@ -98,6 +102,7 @@ function memberStatusLabel(status: string) {
 }
 
 export function PoolPage() {
+  const { trackJob, jobs } = useJobs()
   const [pools, setPools] = useState<PoolSummary[]>([])
   const [poolId, setPoolId] = useState<string | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
@@ -122,7 +127,11 @@ export function PoolPage() {
   const [removeCode, setRemoveCode] = useState<string | null>(null)
 
   const poolItems = useMemo(
-    () => pools.map((pool) => ({ label: `${pool.name} · ${pool.id}`, value: pool.id })),
+    () =>
+      pools.map((pool) => ({
+        label: `${pool.name} · ${pool.id}`,
+        value: pool.id,
+      })),
     [pools]
   )
   const currentPool = pools.find((pool) => pool.id === poolId) ?? null
@@ -130,10 +139,15 @@ export function PoolPage() {
 
   async function loadAll(preferred?: string) {
     setError(null)
-    const [listing, settings] = await Promise.all([queryPools(), querySettings()])
+    const [listing, settings] = await Promise.all([
+      queryPools(),
+      querySettings(),
+    ])
     const preferredId = preferred ?? poolId ?? settings.pool
     const nextId =
-      listing.pools.find((pool) => pool.id === preferredId)?.id ?? listing.pools[0]?.id ?? null
+      listing.pools.find((pool) => pool.id === preferredId)?.id ??
+      listing.pools[0]?.id ??
+      null
     setPools(listing.pools)
     setPoolId(nextId)
     if (!nextId) {
@@ -223,14 +237,26 @@ export function PoolPage() {
       if (addMode === "codes") {
         await addPoolCodes(poolId, addCodes)
         setNotice("已按代码加入成分")
+        await loadAll(poolId)
       } else {
-        await addPoolIndex(poolId, addIndex, replaceIndex)
-        setNotice(replaceIndex ? `已用 ${addIndex} 覆盖当前池` : `已并入 ${addIndex}`)
+        const currentPoolId = poolId
+        const index = addIndex
+        const replacing = replaceIndex
+        const job = await addPoolIndex(currentPoolId, index, replacing)
+        trackJob(job, {
+          onSuccess: async () => {
+            setNotice(
+              replacing ? `已用 ${index} 覆盖当前池` : `已并入 ${index}`
+            )
+            await loadAll(currentPoolId)
+          },
+          onFailure: (done) => setError(done.error || "按指数添加失败"),
+        })
+        setNotice(withQueuedHint(`已提交 ${index} 成分任务`, jobs, job))
       }
       setAddOpen(false)
       setAddCodes("")
       setReplaceIndex(false)
-      await loadAll(poolId)
     })
   }
 
@@ -366,8 +392,7 @@ export function PoolPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>代码</TableHead>
-                  <TableHead>名称</TableHead>
+                  <TableHead>股票</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>最新 K</TableHead>
                   <TableHead>来源</TableHead>
@@ -377,11 +402,24 @@ export function PoolPage() {
               <TableBody>
                 {members.map((member) => (
                   <TableRow key={member.code}>
-                    <TableCell className="font-mono">{member.code}</TableCell>
-                    <TableCell>{member.name || "—"}</TableCell>
+                    <TableCell>
+                      <TickerLink
+                        code={member.code}
+                        className="inline-flex items-baseline gap-2"
+                      >
+                        <span className="font-mono">
+                          {tickerFromCode(member.code)}
+                        </span>
+                        {member.name ? (
+                          <span className="font-sans">{member.name}</span>
+                        ) : null}
+                      </TickerLink>
+                    </TableCell>
                     <TableCell>
                       <Badge
-                        variant={member.status === "active" ? "secondary" : "outline"}
+                        variant={
+                          member.status === "active" ? "secondary" : "outline"
+                        }
                       >
                         {memberStatusLabel(member.status)}
                       </Badge>
@@ -455,10 +493,15 @@ export function PoolPage() {
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
-          <form className="flex flex-col gap-4" onSubmit={(event) => void onCreate(event)}>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => void onCreate(event)}
+          >
             <DialogHeader>
               <DialogTitle>新建股票池</DialogTitle>
-              <DialogDescription>id 给命令用，名称显示在列表里。不会改系统设置里的默认池。</DialogDescription>
+              <DialogDescription>
+                id 给命令用，名称显示在列表里。不会改系统设置里的默认池。
+              </DialogDescription>
             </DialogHeader>
             <FieldGroup>
               <Field>
@@ -471,7 +514,9 @@ export function PoolPage() {
                   placeholder="hs300"
                   onChange={(event) => setCreateId(event.target.value)}
                 />
-                <FieldDescription>字母、数字、下划线或短横线，最长 32 位。</FieldDescription>
+                <FieldDescription>
+                  字母、数字、下划线或短横线，最长 32 位。
+                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="new-pool-name">名称</FieldLabel>
@@ -496,7 +541,10 @@ export function PoolPage() {
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
-          <form className="flex flex-col gap-4" onSubmit={(event) => void onAdd(event)}>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => void onAdd(event)}
+          >
             <DialogHeader>
               <DialogTitle>添加成员</DialogTitle>
               <DialogDescription>
@@ -549,10 +597,13 @@ export function PoolPage() {
                         }
                       }}
                       variant="outline"
-                      spacing={0}
+                      className="w-full max-w-full flex-wrap"
                     >
                       {INDEX_OPTIONS.map((option) => (
-                        <ToggleGroupItem key={option.value} value={option.value}>
+                        <ToggleGroupItem
+                          key={option.value}
+                          value={option.value}
+                        >
                           {option.label}
                         </ToggleGroupItem>
                       ))}
@@ -560,7 +611,9 @@ export function PoolPage() {
                   </Field>
                   <Field orientation="horizontal">
                     <FieldContent>
-                      <FieldLabel htmlFor="replace-index">覆盖当前成分</FieldLabel>
+                      <FieldLabel htmlFor="replace-index">
+                        覆盖当前成分
+                      </FieldLabel>
                       <FieldDescription>
                         打开后，不在指数里的票会标为移除，行情仍保留。
                       </FieldDescription>
@@ -658,7 +711,9 @@ function Stat({
     <Card size="sm">
       <CardHeader>
         <CardDescription>{label}</CardDescription>
-        <CardTitle>{loading && value === undefined ? "—" : (value ?? "—")}</CardTitle>
+        <CardTitle>
+          {loading && value === undefined ? "—" : (value ?? "—")}
+        </CardTitle>
       </CardHeader>
     </Card>
   )

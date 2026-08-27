@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from astock_control.config import get_section_view, settings_catalog_view, settings_view
+from astock_control.protocol import ProtocolError, code_to_ticker
 from astock_core.db import MarketDB
-from astock_core.paths import ANALYZE_DIR, DB_PATH, DEFAULT_POOL_ID
+from astock_core.paths import ANALYZE_DIR, DB_PATH, DEFAULT_ADJUST, DEFAULT_POOL_ID
 
 REPORT_LIST_LIMIT = 50
 REPORT_MD_FILES = (
@@ -37,6 +38,8 @@ def handle_query(query: dict[str, Any]) -> dict[str, Any]:
         return pools_list_query()
     if query["type"] == "stocks.list":
         return stocks_list_query()
+    if query["type"] == "stock.get":
+        return stock_get_query(str(query["code"]))
     if query["type"] == "analyze.list":
         return analyze_list_query(code=query.get("code"))
     if query["type"] == "analyze.get":
@@ -61,7 +64,7 @@ def pools_list_query() -> dict[str, Any]:
 
 def stocks_list_query() -> dict[str, Any]:
     with MarketDB(DB_PATH) as db:
-        stocks = db.list_stocks()
+        stocks = [_with_ticker(item) for item in db.list_stocks()]
         in_pool = sum(1 for item in stocks if item["pools"])
         return {
             "count": len(stocks),
@@ -69,6 +72,46 @@ def stocks_list_query() -> dict[str, Any]:
             "profile_filled": db.profile_filled_count(),
             "stocks": stocks,
         }
+
+
+def stock_get_query(code: str) -> dict[str, Any]:
+    with MarketDB(DB_PATH) as db:
+        profile = db.get_stock(code)
+        if profile is None:
+            raise ProtocolError(f"找不到股票: {code}")
+        latest = db.latest_bar(code, adjust=DEFAULT_ADJUST)
+        payload = dict(profile)
+        if not payload.get("latest_price") and latest and latest.get("close") is not None:
+            payload["latest_price"] = latest["close"]
+        return {
+            "code": code,
+            "ticker": code_to_ticker(code),
+            "profile": payload,
+            "pools": _pools_for_code(db, code),
+            "quotes_summary": db.bar_summary(code, adjust=DEFAULT_ADJUST),
+            "latest_bar": latest,
+            "bars": db.list_bars(code, period="daily", adjust=DEFAULT_ADJUST),
+            "bars_weekly": db.list_bars(code, period="weekly", adjust=DEFAULT_ADJUST),
+            "bars_yearly": db.list_bars(code, period="yearly", adjust=DEFAULT_ADJUST),
+        }
+
+
+def _pools_for_code(db: MarketDB, code: str) -> list[dict[str, str]]:
+    rows = db.conn.execute(
+        """
+        SELECT p.id, p.name
+        FROM pool_members m
+        JOIN pools p ON p.id = m.pool_id
+        WHERE m.code = ? AND m.status = 'active'
+        ORDER BY p.id
+        """,
+        (code,),
+    ).fetchall()
+    return [{"id": row["id"], "name": row["name"]} for row in rows]
+
+
+def _with_ticker(item: dict[str, Any]) -> dict[str, Any]:
+    return {**item, "ticker": code_to_ticker(str(item.get("code") or ""))}
 
 
 def status_query(pool_id: str) -> dict[str, Any]:

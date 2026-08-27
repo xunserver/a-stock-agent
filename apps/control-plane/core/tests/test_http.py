@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from fastapi.testclient import TestClient
 
 from astock_control.app import create_app
@@ -31,6 +33,7 @@ def test_health_and_status_and_sync() -> None:
 
         submitted = client.post("/api/commands", json={"type": "quotes.sync", "pool": "default"})
         assert submitted.status_code == 200
+        assert submitted.json()["background"] is True
         job_id = submitted.json()["id"]
         _wait_status(engine, job_id, "succeeded")
 
@@ -38,12 +41,24 @@ def test_health_and_status_and_sync() -> None:
         assert job.status_code == 200
         body = job.json()
         assert body["status"] == "succeeded"
+        assert body["background"] is True
+        assert body["name"] == "同步行情 · 全部（池 default）"
+        assert body["timeout_seconds"] == 7200
         assert body["result"] == {"ok": 1}
         assert "pulling" in body["log"]
 
         listed = client.get("/api/jobs")
         assert listed.json()["jobs"][0]["id"] == job_id
+        assert listed.json()["jobs"][0]["background"] is True
+        assert listed.json()["jobs"][0]["name"] == "同步行情 · 全部（池 default）"
         assert "log" not in listed.json()["jobs"][0]
+
+        invalid_background = client.post(
+            "/api/commands",
+            json={"type": "pool.create", "pool": "hs", "background": True},
+        )
+        assert invalid_background.status_code == 400
+        assert "不支持后台运行" in invalid_background.json()["error"]
 
 
 def test_settings_get_and_update() -> None:
@@ -82,6 +97,7 @@ def test_settings_get_and_update() -> None:
         assert saved.status_code == 200
         job = saved.json()
         assert job["status"] == "succeeded"
+        assert job["background"] is False
         assert job["result"]["adjust"] == "hfq"
         assert job["result"]["quotes"]["sync_enabled"] is True
         assert "api_key" not in job["result"]["analyze"]
@@ -245,3 +261,39 @@ def test_cors_allows_web_and_electron_origins() -> None:
             response = client.get("/api/health", headers={"Origin": origin})
             assert response.status_code == 200
             assert response.headers.get("access-control-allow-origin") == origin
+
+
+def test_cancel_job_endpoint() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    engine = Engine(FakeRunner(block=release, started=started), lambda q: {})
+    with TestClient(create_app(engine)) as client:
+        first = client.post("/api/commands", json={"type": "quotes.sync", "codes": ["000001"]})
+        second = client.post("/api/commands", json={"type": "quotes.sync", "codes": ["000002"]})
+        assert first.status_code == 200
+        assert started.wait(timeout=2)
+        cancelled = client.post(f"/api/jobs/{second.json()['id']}/cancel")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        missing = client.post("/api/jobs/nope/cancel")
+        assert missing.status_code == 404
+        release.set()
+        _wait_status(engine, first.json()["id"], "succeeded")
+        again = client.post(f"/api/jobs/{first.json()['id']}/cancel")
+        assert again.status_code == 400
+        assert "已结束" in again.json()["error"]
+
+
+def test_duplicate_command_is_rejected() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    engine = Engine(FakeRunner(block=release, started=started), lambda q: {})
+    with TestClient(create_app(engine)) as client:
+        first = client.post("/api/commands", json={"type": "quotes.sync"})
+        assert first.status_code == 200
+        assert started.wait(timeout=2)
+        duplicate = client.post("/api/commands", json={"type": "quotes.sync"})
+        assert duplicate.status_code == 400
+        assert first.json()["id"] in duplicate.json()["error"]
+        release.set()
+        _wait_status(engine, first.json()["id"], "succeeded")

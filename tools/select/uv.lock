@@ -1,0 +1,19 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[[package]]
+name = "astock-core"
+version = "0.1.0"
+source = { editable = "../../packages/core" }
+
+[[package]]
+name = "astock-select"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "astock-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "astock-core", editable = "../../packages/core" }]

@@ -1,0 +1,8 @@
+packages:
+  - "packages/ui"
+  - "apps/desktop"
+  - "apps/control-plane/ui"
+
+onlyBuiltDependencies:
+  - electron
+  - esbuild

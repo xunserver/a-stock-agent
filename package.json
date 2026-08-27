@@ -1,0 +1,15 @@
+{
+  "name": "a-stock-agent",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter desktop dev",
+    "dev:web": "pnpm --filter ui dev",
+    "dev:desktop": "pnpm --filter desktop dev",
+    "build:web": "pnpm --filter ui build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild"]
+  }
+}

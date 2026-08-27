@@ -1,0 +1,29 @@
+[project]
+name = "astock-control"
+version = "0.1.0"
+description = "Control-plane orchestration daemon for A-stock tools"
+requires-python = ">=3.11"
+dependencies = [
+    "astock-core",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+]
+
+[project.scripts]
+astock-control = "astock_control.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/astock_control"]
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.uv.sources]
+astock-core = { path = "../../../packages/core", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

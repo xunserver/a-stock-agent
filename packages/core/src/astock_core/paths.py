@@ -24,6 +24,10 @@ DEFAULT_ADJUST = "qfq"
 DEFAULT_POOL_ID = "default"
 
 
+def pool_qlib_dir(pool_id: str) -> Path:
+    return QLIB_DIR / "pools" / pool_id
+
+
 def system_db_path() -> Path:
     override = os.environ.get(SYSTEM_DB_ENV)
     if override:

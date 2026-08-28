@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react"
 import {
-  CircleAlertIcon,
   LandmarkIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -17,7 +16,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -79,6 +77,7 @@ import {
 } from "@/lib/api"
 import { INDEX_OPTIONS } from "@/lib/indexes"
 import { withQueuedHint } from "@/lib/jobs"
+import { notify } from "@/lib/notify"
 import { tickerFromCode } from "@/lib/ticker"
 
 function stockId(stock: Pick<StockRow, "code" | "ticker">): string {
@@ -96,8 +95,6 @@ function poolLabel(stock: StockRow) {
 export function StocksPage() {
   const { trackJob, jobs } = useJobs()
   const [listing, setListing] = useState<StocksList | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -116,7 +113,6 @@ export function StocksPage() {
   const someSelected = selectedCount > 0 && !allSelected
 
   async function loadAll() {
-    setError(null)
     const next = await queryStocks()
     setListing(next)
     const codes = new Set(next.stocks.map((item) => item.code))
@@ -130,7 +126,9 @@ export function StocksPage() {
         await loadAll()
       } catch (err: unknown) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "加载失败")
+          notify.error("股票操作失败", {
+            description: err instanceof Error ? err.message : "加载失败",
+          })
         }
       } finally {
         if (!cancelled) {
@@ -145,12 +143,12 @@ export function StocksPage() {
 
   async function run(action: () => Promise<void>) {
     setBusy(true)
-    setError(null)
-    setNotice(null)
     try {
       await action()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "操作失败")
+      notify.error("股票操作失败", {
+        description: err instanceof Error ? err.message : "操作失败",
+      })
     } finally {
       setBusy(false)
       setLoading(false)
@@ -162,19 +160,22 @@ export function StocksPage() {
     await run(async () => {
       if (addMode === "codes") {
         await addStockCodes(addCodes)
-        setNotice("已按代码加入系统")
+        notify.success("已按代码加入系统")
         await loadAll()
       } else {
         const index = addIndex
         const job = await addStockIndex(index)
         trackJob(job, {
           onSuccess: async () => {
-            setNotice(`已按 ${index} 加入系统`)
+            notify.success(`已按 ${index} 加入系统`)
             await loadAll()
           },
-          onFailure: (done) => setError(done.error || "按指数加入失败"),
+          onFailure: (done) =>
+            notify.error("股票操作失败", {
+              description: done.error || "按指数加入失败",
+            }),
         })
-        setNotice(withQueuedHint(`已提交 ${index} 加入任务`, jobs, job))
+        notify.success(withQueuedHint(`已提交 ${index} 加入任务`, jobs, job))
       }
       setAddOpen(false)
       setAddCodes("")
@@ -185,7 +186,7 @@ export function StocksPage() {
     await run(async () => {
       await removeStockCodes([code])
       setRemoveCode(null)
-      setNotice(`已从系统移除 ${tickerFromCode(code)}`)
+      notify.success(`已从系统移除 ${tickerFromCode(code)}`)
       await loadAll()
     })
   }
@@ -200,12 +201,15 @@ export function StocksPage() {
       const job = await submitStockSync(codes)
       trackJob(job, {
         onSuccess: async () => {
-          setNotice(`已同步 ${label} 的资料与行情`)
+          notify.success(`已同步 ${label} 的资料与行情`)
           await loadAll()
         },
-        onFailure: (done) => setError(done.error || "同步失败"),
+        onFailure: (done) =>
+          notify.error("股票操作失败", {
+            description: done.error || "同步失败",
+          }),
       })
-      setNotice(withQueuedHint(`已提交 ${label} 的同步任务`, jobs, job))
+      notify.success(withQueuedHint(`已提交 ${label} 的同步任务`, jobs, job))
     })
   }
 
@@ -231,20 +235,6 @@ export function StocksPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {error ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertTitle>股票操作失败</AlertTitle>
-          <AlertDescription>{error}。确认 core 已启动。</AlertDescription>
-        </Alert>
-      ) : null}
-      {notice && !error ? (
-        <Alert>
-          <AlertTitle>已更新</AlertTitle>
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      ) : null}
-
       <Card>
         <CardHeader>
           <CardTitle>股票</CardTitle>

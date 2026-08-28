@@ -5,6 +5,7 @@
 **/*.egg-info/
 **/dist/
 **/out/
+**/release/
 **/.ruff_cache/
 **/.pytest_cache/
 .env

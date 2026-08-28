@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 
-from astock.config import DEFAULT_ADJUST, INDEX_ALIASES, REQUEST_SLEEP_SECONDS
+from astock.config import index_aliases
 from astock.boards import sync_boards
 from astock.ingest import configure_logging
 from astock.pool import add_codes_to_pool, add_codes_to_stocks, add_index_to_pool, add_index_to_stocks
 from astock.quotes import sync_quotes
+from astock.events import EVENT_KINDS, fetch_stock_events, format_stock_events
+from astock.news import fetch_stock_news, format_stock_news
 from astock.stock import (
     format_stock_snapshot,
     resolve_sync_codes,
@@ -37,7 +39,7 @@ def _format_pool_summary(db: MarketDB, pool_id: str) -> str:
         [
             f"池 {pool_id}",
             f"在池 {active}  已移除 {counts.get('pool_removed', 0)}",
-            f"行情  需拉全历史 {len(plan['full'])}  需补缺口 {len(plan['fill'])}  已齐 {len(plan['current'])}",
+            f"行情  需同步 {len(plan['full']) + len(plan['fill'])}  已齐 {len(plan['current'])}",
             f"资料  已同步行业 {db.profile_filled_count(pool_id)} / {active}",
             f"库    {DB_PATH}",
         ]
@@ -97,7 +99,7 @@ def main() -> None:
         help="加入成分（指数并入或手工代码），不剔除已有成员",
         parents=[common],
     )
-    add.add_argument("--index", help=f"指数别名或代码，如 hs300。别名：{', '.join(INDEX_ALIASES)}")
+    add.add_argument("--index", help=f"指数别名或代码，如 hs300。别名：{', '.join(index_aliases())}")
     add.add_argument("--codes", help="逗号分隔股票代码")
 
     replace = pool_sub.add_parser(
@@ -125,7 +127,7 @@ def main() -> None:
         help="加入系统股票目录（指数或手工代码）",
         parents=[common],
     )
-    sadd.add_argument("--index", help=f"指数别名或代码，如 hs300。别名：{', '.join(INDEX_ALIASES)}")
+    sadd.add_argument("--index", help=f"指数别名或代码，如 hs300。别名：{', '.join(index_aliases())}")
     sadd.add_argument("--codes", help="逗号分隔股票代码")
     srm = stock_sub.add_parser(
         "remove",
@@ -139,6 +141,26 @@ def main() -> None:
         parents=[common],
     )
     show.add_argument("code", help="股票代码，如 000001")
+    news = stock_sub.add_parser(
+        "news",
+        help="东方财富个股新闻（实时，不入库）",
+        parents=[common],
+    )
+    news.add_argument("code", help="股票代码，如 000001")
+    news.add_argument("--limit", type=int, default=20, help="最多返回条数")
+    events = stock_sub.add_parser(
+        "events",
+        help="个股公告/研报/大宗/股东变更（实时，不入库）",
+        parents=[common],
+    )
+    events.add_argument("code", help="股票代码，如 000001")
+    events.add_argument(
+        "--kind",
+        required=True,
+        choices=sorted(EVENT_KINDS),
+        help="事件类型",
+    )
+    events.add_argument("--limit", type=int, default=None, help="最多返回条数")
     sync = stock_sub.add_parser(
         "sync",
         help="同步个股资料并/或补齐日线；不写代码则处理当前池全部活跃成员",
@@ -147,7 +169,8 @@ def main() -> None:
     sync.add_argument("codes", nargs="?", help="一个或多个代码，逗号分隔")
     sync.add_argument("--info", action="store_true", help="只同步资料（行情快照/估值/财务/ST/停牌）")
     sync.add_argument("--quotes", action="store_true", help="只补齐日线")
-    sync.add_argument("--sleep", type=float, default=REQUEST_SLEEP_SECONDS)
+    sync.add_argument("--statements", action="store_true", help="同步三大报表明细（较慢，默认关闭）")
+    sync.add_argument("--sleep", type=float, default=None)
     sync.add_argument("--add-to-pool", action="store_true", help="若代码不在当前池则加入")
 
     quotes = sub.add_parser("quotes", help="按股票池批量同步日线", parents=[common])
@@ -157,8 +180,10 @@ def main() -> None:
         help="池内新票拉全历史，其余补齐到最近交易日，并写入估值/财务资料",
         parents=[common],
     )
-    qsync.add_argument("--sleep", type=float, default=REQUEST_SLEEP_SECONDS)
-    qsync.add_argument("--adjust", default=DEFAULT_ADJUST, choices=["", "qfq", "hfq"])
+    qsync.add_argument("--sleep", type=float, default=None)
+    qsync.add_argument("--adjust", default=None, choices=["", "qfq", "hfq"])
+    qsync.add_argument("--history-start", default=None, help="历史起点 YYYYMMDD，默认读系统设置")
+    qsync.add_argument("--periods", default=None, help="逗号分隔周期，默认读系统设置")
     qsync.add_argument("--limit", type=int)
     qsync.add_argument("--codes", help="逗号分隔股票代码；不写则同步当前池全部活跃成员")
     quotes_sub.add_parser("pending", help="只看谁需要拉全历史 / 补齐", parents=[common])
@@ -176,12 +201,32 @@ def main() -> None:
         choices=["all", "industry", "concept"],
         help="同步范围，默认 all",
     )
-    bsync.add_argument("--sleep", type=float, default=REQUEST_SLEEP_SECONDS)
+    bsync.add_argument("--sleep", type=float, default=None)
     bsync.add_argument("--limit", type=int, help="每种类型最多同步多少个板块（试跑）")
 
     sub.add_parser("status", help="库规模与当前池摘要", parents=[common])
 
     args = parser.parse_args()
+    if args.cmd == "stock" and args.stock_cmd == "news":
+        configure_logging()
+        code = args.code.strip().zfill(6)
+        items = fetch_stock_news(code, limit=args.limit)
+        payload = {"code": code, "count": len(items), "news": items}
+        _print(payload) if args.json else print(format_stock_news(payload))
+        return
+    if args.cmd == "stock" and args.stock_cmd == "events":
+        configure_logging()
+        code = args.code.strip().zfill(6)
+        items = fetch_stock_events(code, args.kind, limit=args.limit)
+        payload = {
+            "code": code,
+            "kind": args.kind,
+            "count": len(items),
+            "events": items,
+        }
+        _print(payload) if args.json else print(format_stock_events(payload))
+        return
+
     configure_logging()
     with MarketDB(DB_PATH) as db:
         if args.cmd == "status":
@@ -189,6 +234,7 @@ def main() -> None:
             payload = {
                 "db": str(DB_PATH),
                 "pool": args.pool,
+                "need_sync": len(plan["full"]) + len(plan["fill"]),
                 "need_full": len(plan["full"]),
                 "need_fill": len(plan["fill"]),
                 "already_current": len(plan["current"]),
@@ -275,6 +321,7 @@ def main() -> None:
                 do_info=do_info,
                 do_quotes=do_quotes,
                 sleep=args.sleep,
+                with_statements=bool(getattr(args, "statements", False)),
             )
             _print(result)
             return
@@ -296,6 +343,7 @@ def main() -> None:
             plan = db.pool_quote_plan(args.pool)
             payload = {
                 "pool": args.pool,
+                "need_sync": plan["full"] + plan["fill"],
                 "need_full": plan["full"],
                 "need_fill": plan["fill"],
                 "already_current": len(plan["current"]),
@@ -309,6 +357,12 @@ def main() -> None:
             adjust=args.adjust,
             sleep=args.sleep,
             limit=args.limit,
+            start_date=getattr(args, "history_start", None),
+            periods=(
+                tuple(item.strip() for item in args.periods.split(",") if item.strip())
+                if getattr(args, "periods", None)
+                else None
+            ),
         )
         info_codes = _codes(getattr(args, "codes", None)) or db.active_pool_codes(args.pool)
         if info_codes:

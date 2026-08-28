@@ -35,11 +35,16 @@ def test_catalog_lists_modules_and_persists_schema() -> None:
 
         ingest = body["modules"][0]
         assert ingest["title"] == "行情采集"
-        assert [item["id"] for item in ingest["sections"]] == ["quotes", "schedule"]
+        assert [item["id"] for item in ingest["sections"]] == ["quotes", "indexes", "schedule"]
         quotes = ingest["sections"][0]
         assert quotes["schema"]["properties"]["pool"]["type"] == "string"
         assert quotes["values"]["pool"] == "default"
         assert quotes["values"]["adjust"] == "qfq"
+        assert quotes["values"]["history_start"] == "20000101"
+        assert quotes["values"]["periods"] == ["daily", "weekly", "monthly"]
+        indexes = ingest["sections"][1]
+        assert indexes["values"]["hs300_symbol"] == "000300"
+        assert indexes["values"]["aliases"]["hs300"] == "000300"
 
         analyze = next(item for item in body["modules"] if item["id"] == "analyze")
         llm = next(item for item in analyze["sections"] if item["id"] == "llm")
@@ -125,7 +130,7 @@ def test_updating_one_section_does_not_change_another() -> None:
         assert "api_key" not in llm["values"]
         assert quotes["values"]["sleep"] == 0.9
         assert quotes["values"]["adjust"] == "qfq"
-        assert schedule["values"]["sync_time"] == "16:10"
+        assert schedule["values"]["sync_time"] == "16:30"
 
 
 def test_section_values_survive_new_http_client() -> None:

@@ -18,12 +18,22 @@ def test_quotes_sync_argv_defaults() -> None:
 
 def test_quotes_sync_argv_optional_flags() -> None:
     argv = quotes_sync_argv(
-        {"type": "quotes.sync", "pool": "p1", "sleep": 0.5, "adjust": "qfq", "limit": 2}
+        {
+            "type": "quotes.sync",
+            "pool": "p1",
+            "sleep": 0.5,
+            "adjust": "qfq",
+            "limit": 2,
+            "history_start": "20000101",
+            "periods": ["daily", "weekly"],
+        }
     )
     assert argv[argv.index("--pool") + 1] == "p1"
     assert argv[argv.index("--sleep") + 1] == "0.5"
     assert argv[argv.index("--adjust") + 1] == "qfq"
     assert argv[argv.index("--limit") + 1] == "2"
+    assert argv[argv.index("--history-start") + 1] == "20000101"
+    assert argv[argv.index("--periods") + 1] == "daily,weekly"
 
 
 def test_quotes_sync_argv_codes() -> None:
@@ -61,6 +71,20 @@ def test_stock_add_index_argv() -> None:
     assert "--json" in argv
 
 
+def test_stock_sync_with_statements_argv() -> None:
+    argv = stock_command_argv(
+        {
+            "type": "stock.sync",
+            "pool": "default",
+            "codes": ["000001"],
+            "with_statements": True,
+        }
+    )
+    assert "--statements" in argv
+    assert argv[argv.index("sync") + 1] == "000001"
+    assert "--json" in argv
+
+
 def test_boards_sync_argv_defaults() -> None:
     argv = boards_sync_argv({"type": "boards.sync", "pool": "default"})
     assert argv[:3] == ["uv", "--directory", str(INGEST_DIR)]
@@ -86,4 +110,13 @@ def test_boards_sync_argv_optional_flags() -> None:
 def test_parse_indented_json() -> None:
     text = "noise\n{\n  \"ok\": true,\n  \"n\": 1\n}\n"
     assert parse_trailing_json(text) == {"ok": True, "n": 1}
+
+
+def test_parse_json_after_dict_repr_noise() -> None:
+    text = (
+        "Training until validation scores don't improve for 50 rounds\n"
+        "{'IC': 0.01, 'ICIR': 0.02}\n"
+        '{\n  "ok": true,\n  "n": 2\n}\n'
+    )
+    assert parse_trailing_json(text) == {"ok": True, "n": 2}
 

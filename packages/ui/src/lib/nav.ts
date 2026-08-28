@@ -5,6 +5,7 @@ import {
   LandmarkIcon,
   ListTodoIcon,
   SparklesIcon,
+  WorkflowIcon,
 } from "lucide-react"
 
 export type NavItem = {
@@ -24,12 +25,15 @@ export const navGroups: NavGroup[] = [
     items: [
       { title: "股票", url: "/stocks", icon: LandmarkIcon },
       { title: "股票池", url: "/pools", icon: LayersIcon },
-      { title: "多智能体分析", url: "/analyze", icon: BrainIcon },
-      { title: "Qlib 候选", url: "/qlib", icon: SparklesIcon },
+      { title: "量化选股", url: "/qlib", icon: SparklesIcon },
+      { title: "AI分析", url: "/analyze", icon: BrainIcon },
     ],
   },
   {
     title: "运行",
-    items: [{ title: "任务", url: "/jobs", icon: ListTodoIcon }],
+    items: [
+      { title: "自动任务", url: "/automations", icon: WorkflowIcon },
+      { title: "任务", url: "/jobs", icon: ListTodoIcon },
+    ],
   },
 ]

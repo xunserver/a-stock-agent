@@ -1,8 +1,8 @@
+import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
-import { CircleAlertIcon, ListTodoIcon } from "lucide-react"
+import { ListTodoIcon } from "lucide-react"
 
 import { useJobs } from "@/components/job-provider"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -36,26 +37,79 @@ import {
   jobStatusVariant,
   summarizeJobError,
 } from "@/lib/jobs"
+import { listJobs, type Job } from "@/lib/api"
+import { notify } from "@/lib/notify"
 
 export function JobsPage() {
-  const { jobs, error, loading, openJob } = useJobs()
+  const { openJob } = useJobs()
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [date, setDate] = useState("")
+  const [trigger, setTrigger] = useState("")
+  const [loading, setLoading] = useState(true)
+  const lastErrorRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function refresh() {
+      try {
+        const next = await listJobs({
+          date: date || undefined,
+          trigger: trigger || undefined,
+        })
+        if (!cancelled) {
+          setJobs(next)
+          lastErrorRef.current = null
+        }
+      } catch (reason: unknown) {
+        if (!cancelled) {
+          const message =
+            reason instanceof Error ? reason.message : "加载任务失败"
+          if (lastErrorRef.current !== message) {
+            lastErrorRef.current = message
+            notify.error("无法读取任务", { description: message })
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [date, trigger])
 
   return (
     <div className="flex flex-col gap-4">
-      {error ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertTitle>无法读取任务</AlertTitle>
-          <AlertDescription>{error}。确认 core 已启动。</AlertDescription>
-        </Alert>
-      ) : null}
-
       <Card>
-        <CardHeader>
-          <CardTitle>任务</CardTitle>
-          <CardDescription>
-            列表只活在 core 内存里，大约每 2 秒刷新。点一行查看日志。
-          </CardDescription>
+        <CardHeader className="flex-row items-end justify-between gap-4">
+          <div>
+            <CardTitle>任务</CardTitle>
+            <CardDescription>
+              手动与自动执行记录永久保留，大约每 2 秒刷新。点一行查看日志。
+            </CardDescription>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="date"
+              value={date}
+              aria-label="按日期筛选"
+              onChange={(event) => setDate(event.target.value)}
+            />
+            <select
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm"
+              value={trigger}
+              aria-label="按来源筛选"
+              onChange={(event) => setTrigger(event.target.value)}
+            >
+              <option value="">全部来源</option>
+              <option value="manual">手动任务</option>
+              <option value="scheduled">定时触发</option>
+              <option value="automation_manual">自动任务立即运行</option>
+            </select>
+          </div>
         </CardHeader>
         <CardContent>
           {loading && jobs.length === 0 ? (
@@ -70,6 +124,7 @@ export function JobsPage() {
                 <TableRow>
                   <TableHead>名称</TableHead>
                   <TableHead>状态</TableHead>
+                  <TableHead>来源</TableHead>
                   <TableHead>创建</TableHead>
                   <TableHead>结束</TableHead>
                   <TableHead>错误</TableHead>
@@ -92,6 +147,21 @@ export function JobsPage() {
                       <Badge variant={jobStatusVariant(job.status)}>
                         {jobStatusLabel(job.status)}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {job.automation_id ? (
+                        <Link
+                          to={`/automations/${job.automation_id}`}
+                          className="hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {job.trigger === "scheduled"
+                            ? "定时触发"
+                            : "立即运行"}
+                        </Link>
+                      ) : (
+                        "手动"
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatJobDateTime(job.created_at)}
@@ -116,8 +186,7 @@ export function JobsPage() {
                 </EmptyMedia>
                 <EmptyTitle>还没有任务</EmptyTitle>
                 <EmptyDescription>
-                  任务只活在 core 内存里，重启 core
-                  后列表会空。分析报告仍在分析页。
+                  当前筛选条件下还没有任务记录。
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>

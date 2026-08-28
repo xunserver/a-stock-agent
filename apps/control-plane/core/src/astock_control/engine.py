@@ -5,6 +5,8 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from astock_core.automation import AutomationStore
+
 from astock_control.config import load_settings, preview_section, preview_update
 from astock_control.protocol import (
     IMMEDIATE_COMMANDS,
@@ -57,6 +59,7 @@ class Engine:
         self,
         runner: Runner,
         query_handler: Callable[[dict[str, Any]], dict[str, Any]],
+        store: AutomationStore | None = None,
     ) -> None:
         self._runner = runner
         self._query_handler = query_handler
@@ -68,12 +71,16 @@ class Engine:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._cancel_events: dict[str, threading.Event] = {}
+        self.store = store or AutomationStore()
+        self.store.recover_open_jobs()
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._worker, name="astock-control-worker", daemon=True)
+        self._thread = threading.Thread(
+            target=self._worker, name="astock-control-worker", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -82,6 +89,7 @@ class Engine:
             for job in self._jobs.values():
                 if job.status == "queued":
                     self._mark_cancelled_locked(job)
+                    self._persist_job(job)
             events = list(self._cancel_events.values())
             self._cv.notify_all()
         for event in events:
@@ -92,7 +100,14 @@ class Engine:
             self._thread.join(timeout=STOP_JOIN_SECONDS)
             self._thread = None
 
-    def submit(self, raw: dict[str, Any]) -> Job:
+    def submit(
+        self,
+        raw: dict[str, Any],
+        *,
+        trigger: str = "manual",
+        automation_id: str | None = None,
+        scheduled_for: str | None = None,
+    ) -> Job:
         settings = load_settings()
         payload, background_requested, timeout_requested = parse_command_submission(raw)
         command = normalize_command(payload, default_pool=settings["pool"])
@@ -101,6 +116,12 @@ class Engine:
         if command["type"] == "quotes.sync":
             command.setdefault("sleep", float(settings["quotes"]["sleep"]))
             command.setdefault("adjust", str(settings["adjust"]))
+            command.setdefault(
+                "history_start", str(settings["quotes"]["history_start"])
+            )
+            command.setdefault("periods", list(settings["quotes"]["periods"]))
+        elif command["type"] == "boards.sync" or command["type"] == "stock.sync":
+            command.setdefault("sleep", float(settings["quotes"]["sleep"]))
         elif command["type"] == "analyze.run":
             analyze = settings.get("analyze") or {}
             if "analysts" not in command:
@@ -118,8 +139,11 @@ class Engine:
             except ValueError as exc:
                 raise ProtocolError(str(exc)) from exc
 
+        job_id = new_job_id()
+        if command["type"] == "qlib.run":
+            command["run_id"] = job_id
         job = Job(
-            id=new_job_id(),
+            id=job_id,
             type=command["type"],
             status="queued",
             command=command,
@@ -127,6 +151,9 @@ class Engine:
             name=build_job_name(command),
             timeout_seconds=timeout_seconds,
             background=background,
+            trigger=trigger,
+            automation_id=automation_id,
+            scheduled_for=scheduled_for,
         )
         with self._lock:
             duplicate = self._find_duplicate_locked(command)
@@ -134,6 +161,10 @@ class Engine:
                 raise ProtocolError(f"已有相同任务在排队或运行：{duplicate.id}")
             self._jobs[job.id] = job
             self._order.append(job.id)
+            if not self.store.record_job(job.to_dict(include_log=False)):
+                self._jobs.pop(job.id, None)
+                self._order.remove(job.id)
+                raise ProtocolError("该自动任务的计划时刻已经提交")
             self._trim_jobs_locked()
         if command["type"] in IMMEDIATE_COMMANDS or (
             command["type"] in {"pool.add", "stock.add"} and command.get("codes")
@@ -152,13 +183,33 @@ class Engine:
     def get_job(self, job_id: str) -> Job | None:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None:
-                return None
-            return self._copy_job(job)
+            if job is not None and job.status not in TERMINAL_JOB_STATUSES:
+                return self._copy_job(job)
+        stored = self.store.get_job(job_id)
+        return None if stored is None else self._job_from_dict(stored)
 
-    def list_jobs(self) -> list[Job]:
-        with self._lock:
-            return [self._copy_job(self._jobs[job_id]) for job_id in reversed(self._order) if job_id in self._jobs]
+    def list_jobs(
+        self,
+        *,
+        automation_id: str | None = None,
+        date: str | None = None,
+        trigger: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Job]:
+        requested_limit = max(1, limit)
+        stored = self.store.list_jobs(
+            automation_id=automation_id,
+            date=date,
+            trigger=trigger,
+            limit=max(requested_limit, 500) if offset == 0 else requested_limit,
+            offset=offset,
+        )
+        jobs = [self._job_from_dict(item) for item in stored]
+        if offset != 0:
+            return jobs
+        open_count = sum(job.status in OPEN_JOB_STATUSES for job in jobs)
+        return jobs[: max(requested_limit, open_count)]
 
     def cancel(self, job_id: str) -> Job | None:
         event: threading.Event | None = None
@@ -170,6 +221,7 @@ class Engine:
                 raise ProtocolError("任务已结束，无法取消")
             if job.status == "queued":
                 self._mark_cancelled_locked(job)
+                self._persist_job(job)
                 self._cv.notify_all()
                 return self._copy_job(job)
             event = self._cancel_events.get(job_id)
@@ -179,12 +231,19 @@ class Engine:
             event.set()
         return copied
 
-    def wait_for_change(self, job_id: str, log_count: int, timeout: float = 0.3) -> Job | None:
+    def wait_for_change(
+        self, job_id: str, log_count: int, timeout: float = 0.3
+    ) -> Job | None:
         with self._cv:
             job = self._jobs.get(job_id)
             if job is None:
-                return None
+                stored = self.store.get_job(job_id)
+                return None if stored is None else self._job_from_dict(stored)
             if len(job.log) > log_count or job.status in TERMINAL_JOB_STATUSES:
+                if job.status in TERMINAL_JOB_STATUSES:
+                    stored = self.store.get_job(job_id)
+                    if stored is not None:
+                        return self._job_from_dict(stored)
                 return self._copy_job(job)
             self._cv.wait(timeout=timeout)
             job = self._jobs.get(job_id)
@@ -204,6 +263,7 @@ class Engine:
                 return
             job.status = "running"
             job.started_at = utc_now()
+            self._persist_job(job)
             command = dict(job.command)
             timeout = float(job.timeout_seconds)
             cancel_event = threading.Event()
@@ -223,6 +283,7 @@ class Engine:
                 job = self._jobs.get(job_id)
                 if job is not None:
                     self._mark_cancelled_locked(job)
+                    self._persist_job(job)
                 self._cancel_events.pop(job_id, None)
                 self._cv.notify_all()
             return
@@ -233,6 +294,7 @@ class Engine:
                     job.status = "failed"
                     job.error = str(exc)
                     job.finished_at = utc_now()
+                    self._persist_job(job)
                 self._cancel_events.pop(job_id, None)
                 self._cv.notify_all()
             return
@@ -242,6 +304,7 @@ class Engine:
                 job.status = "succeeded"
                 job.result = result
                 job.finished_at = utc_now()
+                self._persist_job(job)
             self._cancel_events.pop(job_id, None)
             self._cv.notify_all()
 
@@ -251,6 +314,9 @@ class Engine:
             if job is None:
                 return
             job.log.append(line)
+            seq = job.persisted_log_count
+            self.store.append_job_log(job_id, seq, line)
+            job.persisted_log_count += 1
             if len(job.log) > LOG_LIMIT:
                 job.log = job.log[-LOG_LIMIT:]
             self._cv.notify_all()
@@ -291,9 +357,38 @@ class Engine:
             name=job.name,
             timeout_seconds=job.timeout_seconds,
             background=job.background,
+            trigger=job.trigger,
+            automation_id=job.automation_id,
+            scheduled_for=job.scheduled_for,
             started_at=job.started_at,
             finished_at=job.finished_at,
             result=None if job.result is None else dict(job.result),
             error=job.error,
             log=list(job.log),
+            persisted_log_count=job.persisted_log_count,
+        )
+
+    def _persist_job(self, job: Job) -> None:
+        self.store.update_job(job.to_dict(include_log=False))
+
+    @staticmethod
+    def _job_from_dict(raw: dict[str, Any]) -> Job:
+        return Job(
+            id=str(raw["id"]),
+            type=str(raw["type"]),
+            status=str(raw["status"]),
+            command=dict(raw.get("command") or {}),
+            created_at=str(raw["created_at"]),
+            name=str(raw.get("name") or ""),
+            timeout_seconds=int(raw.get("timeout_seconds") or 60),
+            background=bool(raw.get("background", False)),
+            trigger=str(raw.get("trigger") or "manual"),
+            automation_id=raw.get("automation_id"),
+            scheduled_for=raw.get("scheduled_for"),
+            started_at=raw.get("started_at"),
+            finished_at=raw.get("finished_at"),
+            result=raw.get("result"),
+            error=raw.get("error"),
+            log=list(raw.get("log") or []),
+            persisted_log_count=int(raw.get("log_count") or 0),
         )

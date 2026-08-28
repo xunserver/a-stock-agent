@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from astock.config import DEFAULT_ADJUST, HISTORY_START, QUOTE_PERIODS, REQUEST_SLEEP_SECONDS
+from astock.config import default_adjust, history_start, quote_periods, request_sleep_seconds
 from astock.ingest import ingest_bars, ingest_calendar
-from astock_core.db import MarketDB
+from astock_core.db import INGEST_KINDS, MarketDB
 from astock_core.paths import DEFAULT_POOL_ID
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ def _plan_codes(
     adjust: str,
     period: str,
 ) -> tuple[list[str], list[str], int]:
-    last_cal = db.last_calendar_date()
+    last_cal = db.current_trade_date()
     need_full: list[str] = []
     need_fill: list[str] = []
     already = 0
@@ -39,11 +39,12 @@ def sync_quotes(
     *,
     pool_id: str = DEFAULT_POOL_ID,
     codes: list[str] | None = None,
-    adjust: str = DEFAULT_ADJUST,
-    sleep: float = REQUEST_SLEEP_SECONDS,
+    adjust: str | None = None,
+    sleep: float | None = None,
     limit: int | None = None,
     refresh_calendar: bool = True,
-    periods: tuple[str, ...] = QUOTE_PERIODS,
+    periods: tuple[str, ...] | None = None,
+    start_date: str | None = None,
 ) -> dict:
     """盘后行情：指定代码或活跃池内，新票拉全历史，其余只补缺口；日/周/月线一并补齐。"""
     calendar = ingest_calendar(db) if refresh_calendar else 0
@@ -52,21 +53,26 @@ def sync_quotes(
     else:
         target_codes = list(codes)
 
+    resolved_adjust = default_adjust() if adjust is None else adjust
+    resolved_sleep = request_sleep_seconds() if sleep is None else sleep
+    resolved_start = start_date or history_start()
+    resolved_periods = periods or quote_periods()
+
     result: dict = {
         "pool": pool_id,
         "calendar": calendar,
-        "history_start": HISTORY_START,
-        "periods": list(periods),
+        "history_start": resolved_start,
+        "periods": list(resolved_periods),
         "ok": 0,
         "error": 0,
         "empty": 0,
     }
 
-    for period in periods:
-        if period not in QUOTE_PERIODS:
+    for period in resolved_periods:
+        if period not in INGEST_KINDS:
             raise ValueError(f"不支持的 K 线周期: {period}")
         need_full, need_fill, already = _plan_codes(
-            db, target_codes, adjust=adjust, period=period
+            db, target_codes, adjust=resolved_adjust, period=period
         )
         full = need_full[:limit] if limit is not None else need_full
         fill = (
@@ -76,7 +82,7 @@ def sync_quotes(
         )
         logger.info(
             "%s线补齐：拉全历史 %s 只，补缺口 %s 只，已最新 %s 只",
-            _PERIOD_LABEL[period],
+            _PERIOD_LABEL.get(period, period),
             len(full),
             len(fill),
             already,
@@ -85,9 +91,9 @@ def sync_quotes(
             ingest_bars(
                 db,
                 codes=full,
-                adjust=adjust,
-                sleep=sleep,
-                start_date=HISTORY_START,
+                adjust=resolved_adjust,
+                sleep=resolved_sleep,
+                start_date=resolved_start,
                 period=period,
             )
             if full
@@ -97,9 +103,9 @@ def sync_quotes(
             ingest_bars(
                 db,
                 codes=fill,
-                adjust=adjust,
-                sleep=sleep,
-                start_date=HISTORY_START,
+                adjust=resolved_adjust,
+                sleep=resolved_sleep,
+                start_date=resolved_start,
                 period=period,
             )
             if fill
@@ -116,10 +122,10 @@ def sync_quotes(
 
         # 兼容旧字段：以日线计划为准
         if period == "daily":
+            result["need_sync"] = len(need_full) + len(need_fill)
             result["need_full"] = len(need_full)
             result["need_fill"] = len(need_fill)
             result["already_current"] = already
-            result["full_rows"] = full_stats["rows"]
-            result["fill_rows"] = fill_stats["rows"]
+            result["rows"] = rows
 
     return result

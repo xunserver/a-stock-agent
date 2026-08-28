@@ -1,0 +1,2820 @@
+{
+  "balance": [
+    {
+      "key": "MONETARYFUNDS",
+      "label": "流动资产"
+    },
+    {
+      "key": "SETTLE_EXCESS_RESERVE",
+      "label": "结算备付金"
+    },
+    {
+      "key": "LEND_FUND",
+      "label": "拆出资金"
+    },
+    {
+      "key": "TRADE_FINASSET_NOTFVTPL",
+      "label": "交易性金融资产"
+    },
+    {
+      "key": "FIN_FUND",
+      "label": "融出资金"
+    },
+    {
+      "key": "FVTPL_FINASSET",
+      "label": "以公允价值计量且其变动计入当期损益的金融资产"
+    },
+    {
+      "key": "DERIVE_FINASSET",
+      "label": "衍生金融资产"
+    },
+    {
+      "key": "NOTE_ACCOUNTS_RECE",
+      "label": "应收票据及应收账款"
+    },
+    {
+      "key": "FINANCE_RECE",
+      "label": "应收款项融资"
+    },
+    {
+      "key": "PREPAYMENT",
+      "label": "预付款项"
+    },
+    {
+      "key": "PREMIUM_RECE",
+      "label": "应收保费"
+    },
+    {
+      "key": "REINSURE_RECE",
+      "label": "应收分保账款"
+    },
+    {
+      "key": "RC_RESERVE_RECE",
+      "label": "应收分保合同准备金"
+    },
+    {
+      "key": "TOTAL_OTHER_RECE",
+      "label": "其他应收款合计"
+    },
+    {
+      "key": "EXPORT_REFUND_RECE",
+      "label": "应收出口退税"
+    },
+    {
+      "key": "SUBSIDY_RECE",
+      "label": "应收补贴款"
+    },
+    {
+      "key": "INTERNAL_RECE",
+      "label": "内部应收款"
+    },
+    {
+      "key": "BUY_RESALE_FINASSET",
+      "label": "买入返售金融资产"
+    },
+    {
+      "key": "AMORTIZE_COST_FINASSET",
+      "label": "以摊余成本计量的金融资产"
+    },
+    {
+      "key": "FVTOCI_FINASSET",
+      "label": "以公允价值计量且其变动计入其他综合收益的金融资产"
+    },
+    {
+      "key": "INVENTORY",
+      "label": "存货"
+    },
+    {
+      "key": "CONTRACT_ASSET",
+      "label": "合同资产"
+    },
+    {
+      "key": "HOLDSALE_ASSET",
+      "label": "持有待售资产"
+    },
+    {
+      "key": "NONCURRENT_ASSET_1YEAR",
+      "label": "一年内到期的非流动资产"
+    },
+    {
+      "key": "OTHER_CURRENT_ASSET",
+      "label": "其他流动资产"
+    },
+    {
+      "key": "CURRENT_ASSET_OTHER",
+      "label": "流动资产其他项目"
+    },
+    {
+      "key": "CURRENT_ASSET_BALANCE",
+      "label": "流动资产平衡项目"
+    },
+    {
+      "key": "TOTAL_CURRENT_ASSETS",
+      "label": "流动资产合计"
+    },
+    {
+      "key": "LOAN_ADVANCE",
+      "label": "非流动资产"
+    },
+    {
+      "key": "CREDITOR_INVEST",
+      "label": "债权投资"
+    },
+    {
+      "key": "AMORTIZE_COST_NCFINASSET",
+      "label": "以摊余成本计量的金融资产（非流动）"
+    },
+    {
+      "key": "OTHER_CREDITOR_INVEST",
+      "label": "其他债权投资"
+    },
+    {
+      "key": "FVTOCI_NCFINASSET",
+      "label": "以公允价值计量且其变动计入其他综合收益的金融资产（非流动）"
+    },
+    {
+      "key": "AVAILABLE_SALE_FINASSET",
+      "label": "可供出售金融资产"
+    },
+    {
+      "key": "HOLD_MATURITY_INVEST",
+      "label": "持有至到期投资"
+    },
+    {
+      "key": "LONG_RECE",
+      "label": "长期应收款"
+    },
+    {
+      "key": "LONG_EQUITY_INVEST",
+      "label": "长期股权投资"
+    },
+    {
+      "key": "OTHER_EQUITY_INVEST",
+      "label": "其他权益工具投资"
+    },
+    {
+      "key": "OTHER_NONCURRENT_FINASSET",
+      "label": "其他非流动金融资产"
+    },
+    {
+      "key": "INVEST_REALESTATE",
+      "label": "投资性房地产"
+    },
+    {
+      "key": "FIXED_ASSET",
+      "label": "固定资产"
+    },
+    {
+      "key": "CIP",
+      "label": "在建工程"
+    },
+    {
+      "key": "USERIGHT_ASSET",
+      "label": "使用权资产"
+    },
+    {
+      "key": "PROJECT_MATERIAL",
+      "label": "工程物资"
+    },
+    {
+      "key": "FIXED_ASSET_DISPOSAL",
+      "label": "固定资产清理"
+    },
+    {
+      "key": "PRODUCTIVE_BIOLOGY_ASSET",
+      "label": "生产性生物资产"
+    },
+    {
+      "key": "OIL_GAS_ASSET",
+      "label": "油气资产"
+    },
+    {
+      "key": "INTANGIBLE_ASSET",
+      "label": "无形资产"
+    },
+    {
+      "key": "DEVELOP_EXPENSE",
+      "label": "开发支出"
+    },
+    {
+      "key": "GOODWILL",
+      "label": "商誉"
+    },
+    {
+      "key": "LONG_PREPAID_EXPENSE",
+      "label": "长期待摊费用"
+    },
+    {
+      "key": "DEFER_TAX_ASSET",
+      "label": "递延所得税资产"
+    },
+    {
+      "key": "OTHER_NONCURRENT_ASSET",
+      "label": "其他非流动资产"
+    },
+    {
+      "key": "NONCURRENT_ASSET_OTHER",
+      "label": "非流动资产其他项目"
+    },
+    {
+      "key": "NONCURRENT_ASSET_BALANCE",
+      "label": "非流动资产平衡项目"
+    },
+    {
+      "key": "TOTAL_NONCURRENT_ASSETS",
+      "label": "非流动资产合计"
+    },
+    {
+      "key": "ASSET_OTHER",
+      "label": "资产其他项目"
+    },
+    {
+      "key": "ASSET_BALANCE",
+      "label": "资产平衡项目"
+    },
+    {
+      "key": "TOTAL_ASSETS",
+      "label": "资产总计"
+    },
+    {
+      "key": "SHORT_LOAN",
+      "label": "流动负债"
+    },
+    {
+      "key": "LOAN_PBC",
+      "label": "向中央银行借款"
+    },
+    {
+      "key": "ACCEPT_DEPOSIT_INTERBA",
+      "label": "吸收存款及同业存放"
+    },
+    {
+      "key": "BORROW_FUND",
+      "label": "拆入资金"
+    },
+    {
+      "key": "TRADE_FINLIAB_NOTFVTPL",
+      "label": "交易性金融负债"
+    },
+    {
+      "key": "FVTPL_FINLIAB",
+      "label": "以公允价值计量且其变动计入当期损益的金融负债"
+    },
+    {
+      "key": "DERIVE_FINLIAB",
+      "label": "衍生金融负债"
+    },
+    {
+      "key": "NOTE_ACCOUNTS_PAYABLE",
+      "label": "应付票据及应付账款"
+    },
+    {
+      "key": "ADVANCE_RECEIVABLES",
+      "label": "预收款项"
+    },
+    {
+      "key": "CONTRACT_LIAB",
+      "label": "合同负债"
+    },
+    {
+      "key": "SELL_REPO_FINASSET",
+      "label": "卖出回购金融资产款"
+    },
+    {
+      "key": "FEE_COMMISSION_PAYABLE",
+      "label": "应付手续费及佣金"
+    },
+    {
+      "key": "STAFF_SALARY_PAYABLE",
+      "label": "应付职工薪酬"
+    },
+    {
+      "key": "TAX_PAYABLE",
+      "label": "应交税费"
+    },
+    {
+      "key": "TOTAL_OTHER_PAYABLE",
+      "label": "其他应付款合计"
+    },
+    {
+      "key": "REINSURE_PAYABLE",
+      "label": "应付分保账款"
+    },
+    {
+      "key": "INTERNAL_PAYABLE",
+      "label": "内部应付款"
+    },
+    {
+      "key": "PREDICT_CURRENT_LIAB",
+      "label": "预计流动负债"
+    },
+    {
+      "key": "INSURANCE_CONTRACT_RESERVE",
+      "label": "保险合同准备金"
+    },
+    {
+      "key": "AGENT_TRADE_SECURITY",
+      "label": "代理买卖证券款"
+    },
+    {
+      "key": "AGENT_UNDERWRITE_SECURITY",
+      "label": "代理承销证券款"
+    },
+    {
+      "key": "AMORTIZE_COST_FINLIAB",
+      "label": "以摊余成本计量的金融负债"
+    },
+    {
+      "key": "SHORT_BOND_PAYABLE",
+      "label": "应付短期债券"
+    },
+    {
+      "key": "HOLDSALE_LIAB",
+      "label": "持有待售负债"
+    },
+    {
+      "key": "NONCURRENT_LIAB_1YEAR",
+      "label": "一年内到期的非流动负债"
+    },
+    {
+      "key": "OTHER_CURRENT_LIAB",
+      "label": "其他流动负债"
+    },
+    {
+      "key": "CURRENT_LIAB_OTHER",
+      "label": "流动负债其他项目"
+    },
+    {
+      "key": "CURRENT_LIAB_BALANCE",
+      "label": "流动负债平衡项目"
+    },
+    {
+      "key": "TOTAL_CURRENT_LIAB",
+      "label": "流动负债合计"
+    },
+    {
+      "key": "LONG_LOAN",
+      "label": "非流动负债"
+    },
+    {
+      "key": "AMORTIZE_COST_NCFINLIAB",
+      "label": "以摊余成本计量的金融负债（非流动）"
+    },
+    {
+      "key": "BOND_PAYABLE",
+      "label": "应付债券"
+    },
+    {
+      "key": "LEASE_LIAB",
+      "label": "租赁负债"
+    },
+    {
+      "key": "LONG_PAYABLE",
+      "label": "长期应付款"
+    },
+    {
+      "key": "LONG_STAFFSALARY_PAYABLE",
+      "label": "长期应付职工薪酬"
+    },
+    {
+      "key": "SPECIAL_PAYABLE",
+      "label": "专项应付款"
+    },
+    {
+      "key": "PREDICT_LIAB",
+      "label": "预计负债"
+    },
+    {
+      "key": "DEFER_INCOME",
+      "label": "递延收益"
+    },
+    {
+      "key": "DEFER_TAX_LIAB",
+      "label": "递延所得税负债"
+    },
+    {
+      "key": "OTHER_NONCURRENT_LIAB",
+      "label": "其他非流动负债"
+    },
+    {
+      "key": "NONCURRENT_LIAB_OTHER",
+      "label": "非流动负债其他项目"
+    },
+    {
+      "key": "NONCURRENT_LIAB_BALANCE",
+      "label": "非流动负债平衡项目"
+    },
+    {
+      "key": "TOTAL_NONCURRENT_LIAB",
+      "label": "非流动负债合计"
+    },
+    {
+      "key": "LIAB_OTHER",
+      "label": "负债其他项目"
+    },
+    {
+      "key": "LIAB_BALANCE",
+      "label": "负债平衡项目"
+    },
+    {
+      "key": "TOTAL_LIABILITIES",
+      "label": "负债合计"
+    },
+    {
+      "key": "SHARE_CAPITAL",
+      "label": "所有者权益(或股东权益)"
+    },
+    {
+      "key": "OTHER_EQUITY_TOOL",
+      "label": "其他权益工具"
+    },
+    {
+      "key": "CAPITAL_RESERVE",
+      "label": "资本公积"
+    },
+    {
+      "key": "TREASURY_SHARES",
+      "label": "减:库存股"
+    },
+    {
+      "key": "OTHER_COMPRE_INCOME",
+      "label": "其他综合收益"
+    },
+    {
+      "key": "SPECIAL_RESERVE",
+      "label": "专项储备"
+    },
+    {
+      "key": "SURPLUS_RESERVE",
+      "label": "盈余公积"
+    },
+    {
+      "key": "GENERAL_RISK_RESERVE",
+      "label": "一般风险准备"
+    },
+    {
+      "key": "UNCONFIRM_INVEST_LOSS",
+      "label": "未确定的投资损失"
+    },
+    {
+      "key": "UNASSIGN_RPOFIT",
+      "label": "未分配利润"
+    },
+    {
+      "key": "ASSIGN_CASH_DIVIDEND",
+      "label": "拟分配现金股利"
+    },
+    {
+      "key": "CONVERT_DIFF",
+      "label": "外币报表折算差额"
+    },
+    {
+      "key": "PARENT_EQUITY_OTHER",
+      "label": "归属于母公司股东权益其他项目"
+    },
+    {
+      "key": "PARENT_EQUITY_BALANCE",
+      "label": "归属于母公司股东权益平衡项目"
+    },
+    {
+      "key": "TOTAL_PARENT_EQUITY",
+      "label": "归属于母公司股东权益总计"
+    },
+    {
+      "key": "MINORITY_EQUITY",
+      "label": "少数股东权益"
+    },
+    {
+      "key": "EQUITY_OTHER",
+      "label": "股东权益其他项目"
+    },
+    {
+      "key": "EQUITY_BALANCE",
+      "label": "股东权益平衡项目"
+    },
+    {
+      "key": "TOTAL_EQUITY",
+      "label": "股东权益合计"
+    },
+    {
+      "key": "LIAB_EQUITY_OTHER",
+      "label": "负债和股东权益其他项目"
+    },
+    {
+      "key": "LIAB_EQUITY_BALANCE",
+      "label": "负债及股东权益平衡项目"
+    },
+    {
+      "key": "TOTAL_LIAB_EQUITY",
+      "label": "负债和股东权益总计"
+    },
+    {
+      "key": "OPINION_TYPE",
+      "label": "审计意见(境内)"
+    },
+    {
+      "key": "OSOPINION_TYPE",
+      "label": "审计意见(境外)"
+    },
+    {
+      "key": "MONETARYFUNDS_YOY",
+      "label": "流动资产"
+    },
+    {
+      "key": "SETTLE_EXCESS_RESERVE_YOY",
+      "label": "结算备付金"
+    },
+    {
+      "key": "LEND_FUND_YOY",
+      "label": "拆出资金"
+    },
+    {
+      "key": "TRADE_FINASSET_NOTFVTPL_YOY",
+      "label": "交易性金融资产"
+    },
+    {
+      "key": "FIN_FUND_YOY",
+      "label": "融出资金"
+    },
+    {
+      "key": "FVTPL_FINASSET_YOY",
+      "label": "以公允价值计量且其变动计入当期损益的金融资产"
+    },
+    {
+      "key": "DERIVE_FINASSET_YOY",
+      "label": "衍生金融资产"
+    },
+    {
+      "key": "NOTE_ACCOUNTS_RECE_YOY",
+      "label": "应收票据及应收账款"
+    },
+    {
+      "key": "FINANCE_RECE_YOY",
+      "label": "应收款项融资"
+    },
+    {
+      "key": "PREPAYMENT_YOY",
+      "label": "预付款项"
+    },
+    {
+      "key": "PREMIUM_RECE_YOY",
+      "label": "应收保费"
+    },
+    {
+      "key": "REINSURE_RECE_YOY",
+      "label": "应收分保账款"
+    },
+    {
+      "key": "RC_RESERVE_RECE_YOY",
+      "label": "应收分保合同准备金"
+    },
+    {
+      "key": "TOTAL_OTHER_RECE_YOY",
+      "label": "其他应收款合计"
+    },
+    {
+      "key": "EXPORT_REFUND_RECE_YOY",
+      "label": "应收出口退税"
+    },
+    {
+      "key": "SUBSIDY_RECE_YOY",
+      "label": "应收补贴款"
+    },
+    {
+      "key": "INTERNAL_RECE_YOY",
+      "label": "内部应收款"
+    },
+    {
+      "key": "BUY_RESALE_FINASSET_YOY",
+      "label": "买入返售金融资产"
+    },
+    {
+      "key": "AMORTIZE_COST_FINASSET_YOY",
+      "label": "以摊余成本计量的金融资产"
+    },
+    {
+      "key": "FVTOCI_FINASSET_YOY",
+      "label": "以公允价值计量且其变动计入其他综合收益的金融资产"
+    },
+    {
+      "key": "INVENTORY_YOY",
+      "label": "存货"
+    },
+    {
+      "key": "CONTRACT_ASSET_YOY",
+      "label": "合同资产"
+    },
+    {
+      "key": "HOLDSALE_ASSET_YOY",
+      "label": "持有待售资产"
+    },
+    {
+      "key": "NONCURRENT_ASSET_1YEAR_YOY",
+      "label": "一年内到期的非流动资产"
+    },
+    {
+      "key": "OTHER_CURRENT_ASSET_YOY",
+      "label": "其他流动资产"
+    },
+    {
+      "key": "CURRENT_ASSET_OTHER_YOY",
+      "label": "流动资产其他项目"
+    },
+    {
+      "key": "CURRENT_ASSET_BALANCE_YOY",
+      "label": "流动资产平衡项目"
+    },
+    {
+      "key": "TOTAL_CURRENT_ASSETS_YOY",
+      "label": "流动资产合计"
+    },
+    {
+      "key": "LOAN_ADVANCE_YOY",
+      "label": "非流动资产"
+    },
+    {
+      "key": "CREDITOR_INVEST_YOY",
+      "label": "债权投资"
+    },
+    {
+      "key": "AMORTIZE_COST_NCFINASSET_YOY",
+      "label": "以摊余成本计量的金融资产（非流动）"
+    },
+    {
+      "key": "OTHER_CREDITOR_INVEST_YOY",
+      "label": "其他债权投资"
+    },
+    {
+      "key": "FVTOCI_NCFINASSET_YOY",
+      "label": "以公允价值计量且其变动计入其他综合收益的金融资产（非流动）"
+    },
+    {
+      "key": "AVAILABLE_SALE_FINASSET_YOY",
+      "label": "可供出售金融资产"
+    },
+    {
+      "key": "HOLD_MATURITY_INVEST_YOY",
+      "label": "持有至到期投资"
+    },
+    {
+      "key": "LONG_RECE_YOY",
+      "label": "长期应收款"
+    },
+    {
+      "key": "LONG_EQUITY_INVEST_YOY",
+      "label": "长期股权投资"
+    },
+    {
+      "key": "OTHER_EQUITY_INVEST_YOY",
+      "label": "其他权益工具投资"
+    },
+    {
+      "key": "OTHER_NONCURRENT_FINASSET_YOY",
+      "label": "其他非流动金融资产"
+    },
+    {
+      "key": "INVEST_REALESTATE_YOY",
+      "label": "投资性房地产"
+    },
+    {
+      "key": "FIXED_ASSET_YOY",
+      "label": "固定资产"
+    },
+    {
+      "key": "CIP_YOY",
+      "label": "在建工程"
+    },
+    {
+      "key": "USERIGHT_ASSET_YOY",
+      "label": "使用权资产"
+    },
+    {
+      "key": "PROJECT_MATERIAL_YOY",
+      "label": "工程物资"
+    },
+    {
+      "key": "FIXED_ASSET_DISPOSAL_YOY",
+      "label": "固定资产清理"
+    },
+    {
+      "key": "PRODUCTIVE_BIOLOGY_ASSET_YOY",
+      "label": "生产性生物资产"
+    },
+    {
+      "key": "OIL_GAS_ASSET_YOY",
+      "label": "油气资产"
+    },
+    {
+      "key": "INTANGIBLE_ASSET_YOY",
+      "label": "无形资产"
+    },
+    {
+      "key": "DEVELOP_EXPENSE_YOY",
+      "label": "开发支出"
+    },
+    {
+      "key": "GOODWILL_YOY",
+      "label": "商誉"
+    },
+    {
+      "key": "LONG_PREPAID_EXPENSE_YOY",
+      "label": "长期待摊费用"
+    },
+    {
+      "key": "DEFER_TAX_ASSET_YOY",
+      "label": "递延所得税资产"
+    },
+    {
+      "key": "OTHER_NONCURRENT_ASSET_YOY",
+      "label": "其他非流动资产"
+    },
+    {
+      "key": "NONCURRENT_ASSET_OTHER_YOY",
+      "label": "非流动资产其他项目"
+    },
+    {
+      "key": "NONCURRENT_ASSET_BALANCE_YOY",
+      "label": "非流动资产平衡项目"
+    },
+    {
+      "key": "TOTAL_NONCURRENT_ASSETS_YOY",
+      "label": "非流动资产合计"
+    },
+    {
+      "key": "ASSET_OTHER_YOY",
+      "label": "资产其他项目"
+    },
+    {
+      "key": "ASSET_BALANCE_YOY",
+      "label": "资产平衡项目"
+    },
+    {
+      "key": "TOTAL_ASSETS_YOY",
+      "label": "资产总计"
+    },
+    {
+      "key": "SHORT_LOAN_YOY",
+      "label": "流动负债"
+    },
+    {
+      "key": "LOAN_PBC_YOY",
+      "label": "向中央银行借款"
+    },
+    {
+      "key": "ACCEPT_DEPOSIT_INTERBA_YOY",
+      "label": "吸收存款及同业存放"
+    },
+    {
+      "key": "BORROW_FUND_YOY",
+      "label": "拆入资金"
+    },
+    {
+      "key": "TRADE_FINLIAB_NOTFVTPL_YOY",
+      "label": "交易性金融负债"
+    },
+    {
+      "key": "FVTPL_FINLIAB_YOY",
+      "label": "以公允价值计量且其变动计入当期损益的金融负债"
+    },
+    {
+      "key": "DERIVE_FINLIAB_YOY",
+      "label": "衍生金融负债"
+    },
+    {
+      "key": "NOTE_ACCOUNTS_PAYABLE_YOY",
+      "label": "应付票据及应付账款"
+    },
+    {
+      "key": "ADVANCE_RECEIVABLES_YOY",
+      "label": "预收款项"
+    },
+    {
+      "key": "CONTRACT_LIAB_YOY",
+      "label": "合同负债"
+    },
+    {
+      "key": "SELL_REPO_FINASSET_YOY",
+      "label": "卖出回购金融资产款"
+    },
+    {
+      "key": "FEE_COMMISSION_PAYABLE_YOY",
+      "label": "应付手续费及佣金"
+    },
+    {
+      "key": "STAFF_SALARY_PAYABLE_YOY",
+      "label": "应付职工薪酬"
+    },
+    {
+      "key": "TAX_PAYABLE_YOY",
+      "label": "应交税费"
+    },
+    {
+      "key": "TOTAL_OTHER_PAYABLE_YOY",
+      "label": "其他应付款合计"
+    },
+    {
+      "key": "REINSURE_PAYABLE_YOY",
+      "label": "应付分保账款"
+    },
+    {
+      "key": "INTERNAL_PAYABLE_YOY",
+      "label": "内部应付款"
+    },
+    {
+      "key": "PREDICT_CURRENT_LIAB_YOY",
+      "label": "预计流动负债"
+    },
+    {
+      "key": "INSURANCE_CONTRACT_RESERVE_YOY",
+      "label": "保险合同准备金"
+    },
+    {
+      "key": "AGENT_TRADE_SECURITY_YOY",
+      "label": "代理买卖证券款"
+    },
+    {
+      "key": "AGENT_UNDERWRITE_SECURITY_YOY",
+      "label": "代理承销证券款"
+    },
+    {
+      "key": "AMORTIZE_COST_FINLIAB_YOY",
+      "label": "以摊余成本计量的金融负债"
+    },
+    {
+      "key": "SHORT_BOND_PAYABLE_YOY",
+      "label": "应付短期债券"
+    },
+    {
+      "key": "HOLDSALE_LIAB_YOY",
+      "label": "持有待售负债"
+    },
+    {
+      "key": "NONCURRENT_LIAB_1YEAR_YOY",
+      "label": "一年内到期的非流动负债"
+    },
+    {
+      "key": "OTHER_CURRENT_LIAB_YOY",
+      "label": "其他流动负债"
+    },
+    {
+      "key": "CURRENT_LIAB_OTHER_YOY",
+      "label": "流动负债其他项目"
+    },
+    {
+      "key": "CURRENT_LIAB_BALANCE_YOY",
+      "label": "流动负债平衡项目"
+    },
+    {
+      "key": "TOTAL_CURRENT_LIAB_YOY",
+      "label": "流动负债合计"
+    },
+    {
+      "key": "LONG_LOAN_YOY",
+      "label": "非流动负债"
+    },
+    {
+      "key": "AMORTIZE_COST_NCFINLIAB_YOY",
+      "label": "以摊余成本计量的金融负债（非流动）"
+    },
+    {
+      "key": "BOND_PAYABLE_YOY",
+      "label": "应付债券"
+    },
+    {
+      "key": "LEASE_LIAB_YOY",
+      "label": "租赁负债"
+    },
+    {
+      "key": "LONG_PAYABLE_YOY",
+      "label": "长期应付款"
+    },
+    {
+      "key": "LONG_STAFFSALARY_PAYABLE_YOY",
+      "label": "长期应付职工薪酬"
+    },
+    {
+      "key": "SPECIAL_PAYABLE_YOY",
+      "label": "专项应付款"
+    },
+    {
+      "key": "PREDICT_LIAB_YOY",
+      "label": "预计负债"
+    },
+    {
+      "key": "DEFER_INCOME_YOY",
+      "label": "递延收益"
+    },
+    {
+      "key": "DEFER_TAX_LIAB_YOY",
+      "label": "递延所得税负债"
+    },
+    {
+      "key": "OTHER_NONCURRENT_LIAB_YOY",
+      "label": "其他非流动负债"
+    },
+    {
+      "key": "NONCURRENT_LIAB_OTHER_YOY",
+      "label": "非流动负债其他项目"
+    },
+    {
+      "key": "NONCURRENT_LIAB_BALANCE_YOY",
+      "label": "非流动负债平衡项目"
+    },
+    {
+      "key": "TOTAL_NONCURRENT_LIAB_YOY",
+      "label": "非流动负债合计"
+    },
+    {
+      "key": "LIAB_OTHER_YOY",
+      "label": "负债其他项目"
+    },
+    {
+      "key": "LIAB_BALANCE_YOY",
+      "label": "负债平衡项目"
+    },
+    {
+      "key": "TOTAL_LIABILITIES_YOY",
+      "label": "负债合计"
+    },
+    {
+      "key": "SHARE_CAPITAL_YOY",
+      "label": "所有者权益(或股东权益)"
+    },
+    {
+      "key": "OTHER_EQUITY_TOOL_YOY",
+      "label": "其他权益工具"
+    },
+    {
+      "key": "CAPITAL_RESERVE_YOY",
+      "label": "资本公积"
+    },
+    {
+      "key": "TREASURY_SHARES_YOY",
+      "label": "减:库存股"
+    },
+    {
+      "key": "OTHER_COMPRE_INCOME_YOY",
+      "label": "其他综合收益"
+    },
+    {
+      "key": "SPECIAL_RESERVE_YOY",
+      "label": "专项储备"
+    },
+    {
+      "key": "SURPLUS_RESERVE_YOY",
+      "label": "盈余公积"
+    },
+    {
+      "key": "GENERAL_RISK_RESERVE_YOY",
+      "label": "一般风险准备"
+    },
+    {
+      "key": "UNCONFIRM_INVEST_LOSS_YOY",
+      "label": "未确定的投资损失"
+    },
+    {
+      "key": "UNASSIGN_RPOFIT_YOY",
+      "label": "未分配利润"
+    },
+    {
+      "key": "ASSIGN_CASH_DIVIDEND_YOY",
+      "label": "拟分配现金股利"
+    },
+    {
+      "key": "CONVERT_DIFF_YOY",
+      "label": "外币报表折算差额"
+    },
+    {
+      "key": "PARENT_EQUITY_OTHER_YOY",
+      "label": "归属于母公司股东权益其他项目"
+    },
+    {
+      "key": "PARENT_EQUITY_BALANCE_YOY",
+      "label": "归属于母公司股东权益平衡项目"
+    },
+    {
+      "key": "TOTAL_PARENT_EQUITY_YOY",
+      "label": "归属于母公司股东权益总计"
+    },
+    {
+      "key": "MINORITY_EQUITY_YOY",
+      "label": "少数股东权益"
+    },
+    {
+      "key": "EQUITY_OTHER_YOY",
+      "label": "股东权益其他项目"
+    },
+    {
+      "key": "EQUITY_BALANCE_YOY",
+      "label": "股东权益平衡项目"
+    },
+    {
+      "key": "TOTAL_EQUITY_YOY",
+      "label": "股东权益合计"
+    },
+    {
+      "key": "LIAB_EQUITY_OTHER_YOY",
+      "label": "负债和股东权益其他项目"
+    },
+    {
+      "key": "LIAB_EQUITY_BALANCE_YOY",
+      "label": "负债及股东权益平衡项目"
+    },
+    {
+      "key": "TOTAL_LIAB_EQUITY_YOY",
+      "label": "负债和股东权益总计"
+    }
+  ],
+  "profit": [
+    {
+      "key": "TOTAL_OPERATE_INCOME",
+      "label": "营业总收入"
+    },
+    {
+      "key": "OPERATE_INCOME",
+      "label": "营业收入"
+    },
+    {
+      "key": "INTEREST_INCOME",
+      "label": "利息收入"
+    },
+    {
+      "key": "EARNED_PREMIUM",
+      "label": "已赚保费"
+    },
+    {
+      "key": "FEE_COMMISSION_INCOME",
+      "label": "手续费及佣金收入"
+    },
+    {
+      "key": "OTHER_BUSINESS_INCOME",
+      "label": "其他业务收入"
+    },
+    {
+      "key": "TOI_OTHER",
+      "label": "营业总收入其他项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_COST",
+      "label": "营业总成本"
+    },
+    {
+      "key": "OPERATE_COST",
+      "label": "营业成本"
+    },
+    {
+      "key": "INTEREST_EXPENSE",
+      "label": "利息支出"
+    },
+    {
+      "key": "FEE_COMMISSION_EXPENSE",
+      "label": "手续费及佣金支出"
+    },
+    {
+      "key": "SURRENDER_VALUE",
+      "label": "退保金"
+    },
+    {
+      "key": "NET_COMPENSATE_EXPENSE",
+      "label": "赔付支出净额"
+    },
+    {
+      "key": "NET_CONTRACT_RESERVE",
+      "label": "提取保险合同准备金净额"
+    },
+    {
+      "key": "POLICY_BONUS_EXPENSE",
+      "label": "保单红利支出"
+    },
+    {
+      "key": "REINSURE_EXPENSE",
+      "label": "分保费用"
+    },
+    {
+      "key": "OTHER_BUSINESS_COST",
+      "label": "其他业务成本"
+    },
+    {
+      "key": "OPERATE_TAX_ADD",
+      "label": "税金及附加"
+    },
+    {
+      "key": "SALE_EXPENSE",
+      "label": "销售费用"
+    },
+    {
+      "key": "MANAGE_EXPENSE",
+      "label": "管理费用"
+    },
+    {
+      "key": "RESEARCH_EXPENSE",
+      "label": "研发费用"
+    },
+    {
+      "key": "FINANCE_EXPENSE",
+      "label": "财务费用"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_LOSS",
+      "label": "资产减值损失"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_LOSS",
+      "label": "信用减值损失"
+    },
+    {
+      "key": "TOC_OTHER",
+      "label": "营业总成本其他项目"
+    },
+    {
+      "key": "FAIRVALUE_CHANGE_INCOME",
+      "label": "其他经营收益"
+    },
+    {
+      "key": "INVEST_JOINT_INCOME",
+      "label": "其中:对联营企业和合营企业的投资收益"
+    },
+    {
+      "key": "NET_EXPOSURE_INCOME",
+      "label": "净敞口套期收益"
+    },
+    {
+      "key": "EXCHANGE_INCOME",
+      "label": "汇兑收益"
+    },
+    {
+      "key": "ASSET_DISPOSAL_INCOME",
+      "label": "资产处置收益"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_INCOME",
+      "label": "资产减值损失(新)"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_INCOME",
+      "label": "信用减值损失(新)"
+    },
+    {
+      "key": "OTHER_INCOME",
+      "label": "其他收益"
+    },
+    {
+      "key": "OPERATE_PROFIT_OTHER",
+      "label": "营业利润其他项目"
+    },
+    {
+      "key": "OPERATE_PROFIT_BALANCE",
+      "label": "营业利润平衡项目"
+    },
+    {
+      "key": "OPERATE_PROFIT",
+      "label": "营业利润"
+    },
+    {
+      "key": "NONBUSINESS_INCOME",
+      "label": "加:营业外收入"
+    },
+    {
+      "key": "NONCURRENT_DISPOSAL_INCOME",
+      "label": "其中:非流动资产处置利得"
+    },
+    {
+      "key": "NONBUSINESS_EXPENSE",
+      "label": "减:营业外支出"
+    },
+    {
+      "key": "NONCURRENT_DISPOSAL_LOSS",
+      "label": "其中:非流动资产处置净损失"
+    },
+    {
+      "key": "EFFECT_TP_OTHER",
+      "label": "加:影响利润总额的其他项目"
+    },
+    {
+      "key": "TOTAL_PROFIT_BALANCE",
+      "label": "利润总额平衡项目"
+    },
+    {
+      "key": "TOTAL_PROFIT",
+      "label": "利润总额"
+    },
+    {
+      "key": "INCOME_TAX",
+      "label": "减:所得税"
+    },
+    {
+      "key": "EFFECT_NETPROFIT_OTHER",
+      "label": "加:影响净利润的其他项目"
+    },
+    {
+      "key": "UNCONFIRM_INVEST_LOSS",
+      "label": "未确认投资损失"
+    },
+    {
+      "key": "NETPROFIT",
+      "label": "净利润"
+    },
+    {
+      "key": "PRECOMBINE_PROFIT",
+      "label": "其中:被合并方在合并前实现利润"
+    },
+    {
+      "key": "CONTINUED_NETPROFIT",
+      "label": "(一)按经营持续性分类"
+    },
+    {
+      "key": "DISCONTINUED_NETPROFIT",
+      "label": "终止经营净利润"
+    },
+    {
+      "key": "PARENT_NETPROFIT",
+      "label": "(二)按所有权归属分类"
+    },
+    {
+      "key": "MINORITY_INTEREST",
+      "label": "少数股东损益"
+    },
+    {
+      "key": "DEDUCT_PARENT_NETPROFIT",
+      "label": "扣除非经常性损益后的净利润"
+    },
+    {
+      "key": "NETPROFIT_OTHER",
+      "label": "净利润其他项目"
+    },
+    {
+      "key": "NETPROFIT_BALANCE",
+      "label": "净利润差额(合计平衡项目)"
+    },
+    {
+      "key": "BASIC_EPS",
+      "label": "每股收益"
+    },
+    {
+      "key": "DILUTED_EPS",
+      "label": "稀释每股收益"
+    },
+    {
+      "key": "OTHER_COMPRE_INCOME",
+      "label": "其他综合收益"
+    },
+    {
+      "key": "PARENT_OCI",
+      "label": "归属于母公司股东的其他综合收益"
+    },
+    {
+      "key": "MINORITY_OCI",
+      "label": "归属于少数股东的其他综合收益"
+    },
+    {
+      "key": "TOTAL_COMPRE_INCOME",
+      "label": "综合收益总额"
+    },
+    {
+      "key": "PARENT_TCI",
+      "label": "归属于母公司股东的综合收益总额"
+    },
+    {
+      "key": "MINORITY_TCI",
+      "label": "归属于少数股东的综合收益总额"
+    },
+    {
+      "key": "OPINION_TYPE",
+      "label": "审计意见(境内)"
+    },
+    {
+      "key": "TOTAL_OPERATE_INCOME_YOY",
+      "label": "营业总收入"
+    },
+    {
+      "key": "OPERATE_INCOME_YOY",
+      "label": "营业收入"
+    },
+    {
+      "key": "INTEREST_INCOME_YOY",
+      "label": "利息收入"
+    },
+    {
+      "key": "EARNED_PREMIUM_YOY",
+      "label": "已赚保费"
+    },
+    {
+      "key": "FEE_COMMISSION_INCOME_YOY",
+      "label": "手续费及佣金收入"
+    },
+    {
+      "key": "OTHER_BUSINESS_INCOME_YOY",
+      "label": "其他业务收入"
+    },
+    {
+      "key": "TOI_OTHER_YOY",
+      "label": "营业总收入其他项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_COST_YOY",
+      "label": "营业总成本"
+    },
+    {
+      "key": "OPERATE_COST_YOY",
+      "label": "营业成本"
+    },
+    {
+      "key": "INTEREST_EXPENSE_YOY",
+      "label": "利息支出"
+    },
+    {
+      "key": "FEE_COMMISSION_EXPENSE_YOY",
+      "label": "手续费及佣金支出"
+    },
+    {
+      "key": "SURRENDER_VALUE_YOY",
+      "label": "退保金"
+    },
+    {
+      "key": "NET_COMPENSATE_EXPENSE_YOY",
+      "label": "赔付支出净额"
+    },
+    {
+      "key": "NET_CONTRACT_RESERVE_YOY",
+      "label": "提取保险合同准备金净额"
+    },
+    {
+      "key": "POLICY_BONUS_EXPENSE_YOY",
+      "label": "保单红利支出"
+    },
+    {
+      "key": "REINSURE_EXPENSE_YOY",
+      "label": "分保费用"
+    },
+    {
+      "key": "OTHER_BUSINESS_COST_YOY",
+      "label": "其他业务成本"
+    },
+    {
+      "key": "OPERATE_TAX_ADD_YOY",
+      "label": "税金及附加"
+    },
+    {
+      "key": "SALE_EXPENSE_YOY",
+      "label": "销售费用"
+    },
+    {
+      "key": "MANAGE_EXPENSE_YOY",
+      "label": "管理费用"
+    },
+    {
+      "key": "RESEARCH_EXPENSE_YOY",
+      "label": "研发费用"
+    },
+    {
+      "key": "FINANCE_EXPENSE_YOY",
+      "label": "财务费用"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_LOSS_YOY",
+      "label": "资产减值损失"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_LOSS_YOY",
+      "label": "信用减值损失"
+    },
+    {
+      "key": "TOC_OTHER_YOY",
+      "label": "营业总成本其他项目"
+    },
+    {
+      "key": "FAIRVALUE_CHANGE_INCOME_YOY",
+      "label": "其他经营收益"
+    },
+    {
+      "key": "INVEST_JOINT_INCOME_YOY",
+      "label": "其中:对联营企业和合营企业的投资收益"
+    },
+    {
+      "key": "NET_EXPOSURE_INCOME_YOY",
+      "label": "净敞口套期收益"
+    },
+    {
+      "key": "EXCHANGE_INCOME_YOY",
+      "label": "汇兑收益"
+    },
+    {
+      "key": "ASSET_DISPOSAL_INCOME_YOY",
+      "label": "资产处置收益"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_INCOME_YOY",
+      "label": "资产减值损失(新)"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_INCOME_YOY",
+      "label": "信用减值损失(新)"
+    },
+    {
+      "key": "OTHER_INCOME_YOY",
+      "label": "其他收益"
+    },
+    {
+      "key": "OPERATE_PROFIT_OTHER_YOY",
+      "label": "营业利润其他项目"
+    },
+    {
+      "key": "OPERATE_PROFIT_BALANCE_YOY",
+      "label": "营业利润平衡项目"
+    },
+    {
+      "key": "OPERATE_PROFIT_YOY",
+      "label": "营业利润"
+    },
+    {
+      "key": "NONBUSINESS_INCOME_YOY",
+      "label": "加:营业外收入"
+    },
+    {
+      "key": "NONCURRENT_DISPOSAL_INCOME_YOY",
+      "label": "其中:非流动资产处置利得"
+    },
+    {
+      "key": "NONBUSINESS_EXPENSE_YOY",
+      "label": "减:营业外支出"
+    },
+    {
+      "key": "NONCURRENT_DISPOSAL_LOSS_YOY",
+      "label": "其中:非流动资产处置净损失"
+    },
+    {
+      "key": "EFFECT_TP_OTHER_YOY",
+      "label": "加:影响利润总额的其他项目"
+    },
+    {
+      "key": "TOTAL_PROFIT_BALANCE_YOY",
+      "label": "利润总额平衡项目"
+    },
+    {
+      "key": "TOTAL_PROFIT_YOY",
+      "label": "利润总额"
+    },
+    {
+      "key": "INCOME_TAX_YOY",
+      "label": "减:所得税"
+    },
+    {
+      "key": "EFFECT_NETPROFIT_OTHER_YOY",
+      "label": "加:影响净利润的其他项目"
+    },
+    {
+      "key": "UNCONFIRM_INVEST_LOSS_YOY",
+      "label": "未确认投资损失"
+    },
+    {
+      "key": "NETPROFIT_YOY",
+      "label": "净利润"
+    },
+    {
+      "key": "PRECOMBINE_PROFIT_YOY",
+      "label": "其中:被合并方在合并前实现利润"
+    },
+    {
+      "key": "CONTINUED_NETPROFIT_YOY",
+      "label": "(一)按经营持续性分类"
+    },
+    {
+      "key": "DISCONTINUED_NETPROFIT_YOY",
+      "label": "终止经营净利润"
+    },
+    {
+      "key": "PARENT_NETPROFIT_YOY",
+      "label": "(二)按所有权归属分类"
+    },
+    {
+      "key": "MINORITY_INTEREST_YOY",
+      "label": "少数股东损益"
+    },
+    {
+      "key": "DEDUCT_PARENT_NETPROFIT_YOY",
+      "label": "扣除非经常性损益后的净利润"
+    },
+    {
+      "key": "NETPROFIT_OTHER_YOY",
+      "label": "净利润其他项目"
+    },
+    {
+      "key": "NETPROFIT_BALANCE_YOY",
+      "label": "净利润差额(合计平衡项目)"
+    },
+    {
+      "key": "BASIC_EPS_YOY",
+      "label": "每股收益"
+    },
+    {
+      "key": "DILUTED_EPS_YOY",
+      "label": "稀释每股收益"
+    },
+    {
+      "key": "OTHER_COMPRE_INCOME_YOY",
+      "label": "其他综合收益"
+    },
+    {
+      "key": "PARENT_OCI_YOY",
+      "label": "归属于母公司股东的其他综合收益"
+    },
+    {
+      "key": "MINORITY_OCI_YOY",
+      "label": "归属于少数股东的其他综合收益"
+    },
+    {
+      "key": "TOTAL_COMPRE_INCOME_YOY",
+      "label": "综合收益总额"
+    },
+    {
+      "key": "PARENT_TCI_YOY",
+      "label": "归属于母公司股东的综合收益总额"
+    },
+    {
+      "key": "MINORITY_TCI_YOY",
+      "label": "归属于少数股东的综合收益总额"
+    },
+    {
+      "key": "TOTAL_OPERATE_INCOME_QOQ",
+      "label": "营业总收入"
+    },
+    {
+      "key": "OPERATE_INCOME_QOQ",
+      "label": "营业收入"
+    },
+    {
+      "key": "INTEREST_INCOME_QOQ",
+      "label": "利息收入"
+    },
+    {
+      "key": "EARNED_PREMIUM_QOQ",
+      "label": "已赚保费"
+    },
+    {
+      "key": "FEE_COMMISSION_INCOME_QOQ",
+      "label": "手续费及佣金收入"
+    },
+    {
+      "key": "OTHER_BUSINESS_INCOME_QOQ",
+      "label": "其他业务收入"
+    },
+    {
+      "key": "TOI_OTHER_QOQ",
+      "label": "营业总收入其他项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_COST_QOQ",
+      "label": "营业总成本"
+    },
+    {
+      "key": "OPERATE_COST_QOQ",
+      "label": "营业成本"
+    },
+    {
+      "key": "INTEREST_EXPENSE_QOQ",
+      "label": "利息支出"
+    },
+    {
+      "key": "FEE_COMMISSION_EXPENSE_QOQ",
+      "label": "手续费及佣金支出"
+    },
+    {
+      "key": "SURRENDER_VALUE_QOQ",
+      "label": "退保金"
+    },
+    {
+      "key": "NET_COMPENSATE_EXPENSE_QOQ",
+      "label": "赔付支出净额"
+    },
+    {
+      "key": "NET_CONTRACT_RESERVE_QOQ",
+      "label": "提取保险合同准备金净额"
+    },
+    {
+      "key": "POLICY_BONUS_EXPENSE_QOQ",
+      "label": "保单红利支出"
+    },
+    {
+      "key": "REINSURE_EXPENSE_QOQ",
+      "label": "分保费用"
+    },
+    {
+      "key": "OTHER_BUSINESS_COST_QOQ",
+      "label": "其他业务成本"
+    },
+    {
+      "key": "OPERATE_TAX_ADD_QOQ",
+      "label": "税金及附加"
+    },
+    {
+      "key": "SALE_EXPENSE_QOQ",
+      "label": "销售费用"
+    },
+    {
+      "key": "MANAGE_EXPENSE_QOQ",
+      "label": "管理费用"
+    },
+    {
+      "key": "RESEARCH_EXPENSE_QOQ",
+      "label": "研发费用"
+    },
+    {
+      "key": "FINANCE_EXPENSE_QOQ",
+      "label": "财务费用"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_LOSS_QOQ",
+      "label": "资产减值损失"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_LOSS_QOQ",
+      "label": "信用减值损失"
+    },
+    {
+      "key": "TOC_OTHER_QOQ",
+      "label": "营业总成本其他项目"
+    },
+    {
+      "key": "FAIRVALUE_CHANGE_INCOME_QOQ",
+      "label": "其他经营收益"
+    },
+    {
+      "key": "INVEST_JOINT_INCOME_QOQ",
+      "label": "其中:对联营企业和合营企业的投资收益"
+    },
+    {
+      "key": "NET_EXPOSURE_INCOME_QOQ",
+      "label": "净敞口套期收益"
+    },
+    {
+      "key": "EXCHANGE_INCOME_QOQ",
+      "label": "汇兑收益"
+    },
+    {
+      "key": "ASSET_DISPOSAL_INCOME_QOQ",
+      "label": "资产处置收益"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_INCOME_QOQ",
+      "label": "资产减值损失(新)"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_INCOME_QOQ",
+      "label": "信用减值损失(新)"
+    },
+    {
+      "key": "OTHER_INCOME_QOQ",
+      "label": "其他收益"
+    },
+    {
+      "key": "OPERATE_PROFIT_OTHER_QOQ",
+      "label": "营业利润其他项目"
+    },
+    {
+      "key": "OPERATE_PROFIT_BALANCE_QOQ",
+      "label": "营业利润平衡项目"
+    },
+    {
+      "key": "OPERATE_PROFIT_QOQ",
+      "label": "营业利润"
+    },
+    {
+      "key": "NONBUSINESS_INCOME_QOQ",
+      "label": "加:营业外收入"
+    },
+    {
+      "key": "NONCURRENT_DISPOSAL_INCOME_QOQ",
+      "label": "其中:非流动资产处置利得"
+    },
+    {
+      "key": "NONBUSINESS_EXPENSE_QOQ",
+      "label": "减:营业外支出"
+    },
+    {
+      "key": "NONCURRENT_DISPOSAL_LOSS_QOQ",
+      "label": "其中:非流动资产处置净损失"
+    },
+    {
+      "key": "EFFECT_TP_OTHER_QOQ",
+      "label": "加:影响利润总额的其他项目"
+    },
+    {
+      "key": "TOTAL_PROFIT_BALANCE_QOQ",
+      "label": "利润总额平衡项目"
+    },
+    {
+      "key": "TOTAL_PROFIT_QOQ",
+      "label": "利润总额"
+    },
+    {
+      "key": "INCOME_TAX_QOQ",
+      "label": "减:所得税"
+    },
+    {
+      "key": "EFFECT_NETPROFIT_OTHER_QOQ",
+      "label": "加:影响净利润的其他项目"
+    },
+    {
+      "key": "UNCONFIRM_INVEST_LOSS_QOQ",
+      "label": "未确认投资损失"
+    },
+    {
+      "key": "NETPROFIT_QOQ",
+      "label": "净利润"
+    },
+    {
+      "key": "PRECOMBINE_PROFIT_QOQ",
+      "label": "其中:被合并方在合并前实现利润"
+    },
+    {
+      "key": "CONTINUED_NETPROFIT_QOQ",
+      "label": "(一)按经营持续性分类"
+    },
+    {
+      "key": "DISCONTINUED_NETPROFIT_QOQ",
+      "label": "终止经营净利润"
+    },
+    {
+      "key": "PARENT_NETPROFIT_QOQ",
+      "label": "(二)按所有权归属分类"
+    },
+    {
+      "key": "MINORITY_INTEREST_QOQ",
+      "label": "少数股东损益"
+    },
+    {
+      "key": "DEDUCT_PARENT_NETPROFIT_QOQ",
+      "label": "扣除非经常性损益后的净利润"
+    },
+    {
+      "key": "NETPROFIT_OTHER_QOQ",
+      "label": "净利润其他项目"
+    },
+    {
+      "key": "NETPROFIT_BALANCE_QOQ",
+      "label": "净利润差额(合计平衡项目)"
+    },
+    {
+      "key": "BASIC_EPS_QOQ",
+      "label": "每股收益"
+    },
+    {
+      "key": "DILUTED_EPS_QOQ",
+      "label": "稀释每股收益"
+    },
+    {
+      "key": "OTHER_COMPRE_INCOME_QOQ",
+      "label": "其他综合收益"
+    },
+    {
+      "key": "PARENT_OCI_QOQ",
+      "label": "归属于母公司股东的其他综合收益"
+    },
+    {
+      "key": "MINORITY_OCI_QOQ",
+      "label": "归属于少数股东的其他综合收益"
+    },
+    {
+      "key": "TOTAL_COMPRE_INCOME_QOQ",
+      "label": "综合收益总额"
+    },
+    {
+      "key": "PARENT_TCI_QOQ",
+      "label": "归属于母公司股东的综合收益总额"
+    },
+    {
+      "key": "MINORITY_TCI_QOQ",
+      "label": "归属于少数股东的综合收益总额"
+    }
+  ],
+  "cashflow": [
+    {
+      "key": "SALES_SERVICES_YOY",
+      "label": "经营活动产生的现金流量"
+    },
+    {
+      "key": "DEPOSIT_INTERBANK_ADD_YOY",
+      "label": "客户存款和同业存放款项净增加额"
+    },
+    {
+      "key": "LOAN_PBC_ADD_YOY",
+      "label": "向中央银行借款净增加额"
+    },
+    {
+      "key": "OFI_BF_ADD_YOY",
+      "label": "向其他金融机构拆入资金净增加额"
+    },
+    {
+      "key": "RECEIVE_ORIGIC_PREMIUM_YOY",
+      "label": "收到原保险合同保费取得的现金"
+    },
+    {
+      "key": "RECEIVE_REINSURE_NET_YOY",
+      "label": "收到再保险业务现金净额"
+    },
+    {
+      "key": "INSURED_INVEST_ADD_YOY",
+      "label": "保户储金及投资款净增加额"
+    },
+    {
+      "key": "DISPOSAL_TFA_ADD_YOY",
+      "label": "处置交易性金融资产净增加额"
+    },
+    {
+      "key": "RECEIVE_INTEREST_COMMISSION_YOY",
+      "label": "收取利息、手续费及佣金的现金"
+    },
+    {
+      "key": "BORROW_FUND_ADD_YOY",
+      "label": "拆入资金净增加额"
+    },
+    {
+      "key": "LOAN_ADVANCE_REDUCE_YOY",
+      "label": "发放贷款及垫款的净减少额"
+    },
+    {
+      "key": "REPO_BUSINESS_ADD_YOY",
+      "label": "回购业务资金净增加额"
+    },
+    {
+      "key": "RECEIVE_TAX_REFUND_YOY",
+      "label": "收到的税收返还"
+    },
+    {
+      "key": "RECEIVE_OTHER_OPERATE_YOY",
+      "label": "收到其他与经营活动有关的现金"
+    },
+    {
+      "key": "OPERATE_INFLOW_OTHER_YOY",
+      "label": "经营活动现金流入的其他项目"
+    },
+    {
+      "key": "OPERATE_INFLOW_BALANCE_YOY",
+      "label": "经营活动现金流入的平衡项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_INFLOW_YOY",
+      "label": "经营活动现金流入小计"
+    },
+    {
+      "key": "BUY_SERVICES_YOY",
+      "label": "购买商品、接受劳务支付的现金"
+    },
+    {
+      "key": "LOAN_ADVANCE_ADD_YOY",
+      "label": "客户贷款及垫款净增加额"
+    },
+    {
+      "key": "PBC_INTERBANK_ADD_YOY",
+      "label": "存放中央银行和同业款项净增加额"
+    },
+    {
+      "key": "PAY_ORIGIC_COMPENSATE_YOY",
+      "label": "支付原保险合同赔付等款项的现金"
+    },
+    {
+      "key": "PAY_INTEREST_COMMISSION_YOY",
+      "label": "支付利息、手续费及佣金的现金"
+    },
+    {
+      "key": "PAY_POLICY_BONUS_YOY",
+      "label": "支付保单红利的现金"
+    },
+    {
+      "key": "PAY_STAFF_CASH_YOY",
+      "label": "支付给职工以及为职工支付的现金"
+    },
+    {
+      "key": "PAY_ALL_TAX_YOY",
+      "label": "支付的各项税费"
+    },
+    {
+      "key": "PAY_OTHER_OPERATE_YOY",
+      "label": "支付其他与经营活动有关的现金"
+    },
+    {
+      "key": "OPERATE_OUTFLOW_OTHER_YOY",
+      "label": "经营活动现金流出的其他项目"
+    },
+    {
+      "key": "OPERATE_OUTFLOW_BALANCE_YOY",
+      "label": "经营活动现金流出的平衡项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_OUTFLOW_YOY",
+      "label": "经营活动现金流出小计"
+    },
+    {
+      "key": "OPERATE_NETCASH_OTHER_YOY",
+      "label": "经营活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "OPERATE_NETCASH_BALANCE_YOY",
+      "label": "经营活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_OPERATE_YOY",
+      "label": "经营活动产生的现金流量净额"
+    },
+    {
+      "key": "WITHDRAW_INVEST_YOY",
+      "label": "投资活动产生的现金流量"
+    },
+    {
+      "key": "RECEIVE_INVEST_INCOME_YOY",
+      "label": "取得投资收益收到的现金"
+    },
+    {
+      "key": "DISPOSAL_LONG_ASSET_YOY",
+      "label": "处置固定资产、无形资产和其他长期资产收回的现金净额"
+    },
+    {
+      "key": "DISPOSAL_SUBSIDIARY_OTHER_YOY",
+      "label": "处置子公司及其他营业单位收到的现金"
+    },
+    {
+      "key": "REDUCE_PLEDGE_TIMEDEPOSITS_YOY",
+      "label": "减少质押和定期存款所收到的现金"
+    },
+    {
+      "key": "RECEIVE_OTHER_INVEST_YOY",
+      "label": "收到的其他与投资活动有关的现金"
+    },
+    {
+      "key": "INVEST_INFLOW_OTHER_YOY",
+      "label": "投资活动现金流入的其他项目"
+    },
+    {
+      "key": "INVEST_INFLOW_BALANCE_YOY",
+      "label": "投资活动现金流入的平衡项目"
+    },
+    {
+      "key": "TOTAL_INVEST_INFLOW_YOY",
+      "label": "投资活动现金流入小计"
+    },
+    {
+      "key": "CONSTRUCT_LONG_ASSET_YOY",
+      "label": "购建固定资产、无形资产和其他长期资产支付的现金"
+    },
+    {
+      "key": "INVEST_PAY_CASH_YOY",
+      "label": "投资支付的现金"
+    },
+    {
+      "key": "PLEDGE_LOAN_ADD_YOY",
+      "label": "质押贷款净增加额"
+    },
+    {
+      "key": "OBTAIN_SUBSIDIARY_OTHER_YOY",
+      "label": "取得子公司及其他营业单位支付的现金净额"
+    },
+    {
+      "key": "ADD_PLEDGE_TIMEDEPOSITS_YOY",
+      "label": "增加质押和定期存款所支付的现金"
+    },
+    {
+      "key": "PAY_OTHER_INVEST_YOY",
+      "label": "支付其他与投资活动有关的现金"
+    },
+    {
+      "key": "INVEST_OUTFLOW_OTHER_YOY",
+      "label": "投资活动现金流出的其他项目"
+    },
+    {
+      "key": "INVEST_OUTFLOW_BALANCE_YOY",
+      "label": "投资活动现金流出的平衡项目"
+    },
+    {
+      "key": "TOTAL_INVEST_OUTFLOW_YOY",
+      "label": "投资活动现金流出小计"
+    },
+    {
+      "key": "INVEST_NETCASH_OTHER_YOY",
+      "label": "投资活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "INVEST_NETCASH_BALANCE_YOY",
+      "label": "投资活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_INVEST_YOY",
+      "label": "投资活动产生的现金流量净额"
+    },
+    {
+      "key": "ACCEPT_INVEST_CASH_YOY",
+      "label": "筹资活动产生的现金流量"
+    },
+    {
+      "key": "SUBSIDIARY_ACCEPT_INVEST_YOY",
+      "label": "其中:子公司吸收少数股东投资收到的现金"
+    },
+    {
+      "key": "RECEIVE_LOAN_CASH_YOY",
+      "label": "取得借款收到的现金"
+    },
+    {
+      "key": "ISSUE_BOND_YOY",
+      "label": "发行债券收到的现金"
+    },
+    {
+      "key": "RECEIVE_OTHER_FINANCE_YOY",
+      "label": "收到的其他与筹资活动有关的现金"
+    },
+    {
+      "key": "FINANCE_INFLOW_OTHER_YOY",
+      "label": "筹资活动现金流入的其他项目"
+    },
+    {
+      "key": "FINANCE_INFLOW_BALANCE_YOY",
+      "label": "筹资活动现金流入的平衡项目"
+    },
+    {
+      "key": "TOTAL_FINANCE_INFLOW_YOY",
+      "label": "筹资活动现金流入小计"
+    },
+    {
+      "key": "PAY_DEBT_CASH_YOY",
+      "label": "偿还债务所支付的现金"
+    },
+    {
+      "key": "ASSIGN_DIVIDEND_PORFIT_YOY",
+      "label": "分配股利、利润或偿付利息支付的现金"
+    },
+    {
+      "key": "SUBSIDIARY_PAY_DIVIDEND_YOY",
+      "label": "其中:子公司支付给少数股东的股利、利润"
+    },
+    {
+      "key": "BUY_SUBSIDIARY_EQUITY_YOY",
+      "label": "购买子公司少数股权而支付的现金"
+    },
+    {
+      "key": "PAY_OTHER_FINANCE_YOY",
+      "label": "支付的其他与筹资活动有关的现金"
+    },
+    {
+      "key": "SUBSIDIARY_REDUCE_CASH_YOY",
+      "label": "其中:子公司减资支付给少数股东的现金"
+    },
+    {
+      "key": "FINANCE_OUTFLOW_OTHER_YOY",
+      "label": "筹资活动现金流出的其他项目"
+    },
+    {
+      "key": "FINANCE_OUTFLOW_BALANCE_YOY",
+      "label": "筹资活动现金流出的平衡项目"
+    },
+    {
+      "key": "TOTAL_FINANCE_OUTFLOW_YOY",
+      "label": "筹资活动现金流出小计"
+    },
+    {
+      "key": "FINANCE_NETCASH_OTHER_YOY",
+      "label": "筹资活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "FINANCE_NETCASH_BALANCE_YOY",
+      "label": "筹资活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_FINANCE_YOY",
+      "label": "筹资活动产生的现金流量净额"
+    },
+    {
+      "key": "RATE_CHANGE_EFFECT_YOY",
+      "label": "汇率变动对现金及现金等价物的影响"
+    },
+    {
+      "key": "CCE_ADD_OTHER_YOY",
+      "label": "现金及现金等价物净增加额其他项目"
+    },
+    {
+      "key": "CCE_ADD_BALANCE_YOY",
+      "label": "现金及现金等价物净增加额平衡项目"
+    },
+    {
+      "key": "CCE_ADD_YOY",
+      "label": "现金及现金等价物净增加额"
+    },
+    {
+      "key": "BEGIN_CCE_YOY",
+      "label": "加:期初现金及现金等价物余额"
+    },
+    {
+      "key": "END_CCE_OTHER_YOY",
+      "label": "期末现金及现金等价物余额其他项目"
+    },
+    {
+      "key": "END_CCE_BALANCE_YOY",
+      "label": "期末现金及现金等价物余额平衡项目"
+    },
+    {
+      "key": "END_CCE_YOY",
+      "label": "期末现金及现金等价物余额"
+    },
+    {
+      "key": "NETPROFIT_YOY",
+      "label": "补充资料"
+    },
+    {
+      "key": "MINORITY_INTEREST_YOY",
+      "label": "少数股东损益"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_YOY",
+      "label": "资产减值准备"
+    },
+    {
+      "key": "FA_IR_DEPR_YOY",
+      "label": "固定资产和投资性房地产折旧"
+    },
+    {
+      "key": "OILGAS_BIOLOGY_DEPR_YOY",
+      "label": "其中:固定资产折旧、油气资产折耗、生产性生物资产折旧"
+    },
+    {
+      "key": "IR_DEPR_YOY",
+      "label": "投资性房地产折旧"
+    },
+    {
+      "key": "IA_AMORTIZE_YOY",
+      "label": "无形资产摊销"
+    },
+    {
+      "key": "LPE_AMORTIZE_YOY",
+      "label": "长期待摊费用摊销"
+    },
+    {
+      "key": "DEFER_INCOME_AMORTIZE_YOY",
+      "label": "递延收益摊销"
+    },
+    {
+      "key": "PREPAID_EXPENSE_REDUCE_YOY",
+      "label": "待摊费用的减少"
+    },
+    {
+      "key": "ACCRUED_EXPENSE_ADD_YOY",
+      "label": "预提费用的增加"
+    },
+    {
+      "key": "DISPOSAL_LONGASSET_LOSS_YOY",
+      "label": "处置固定资产、无形资产和其他长期资产的损失"
+    },
+    {
+      "key": "FA_SCRAP_LOSS_YOY",
+      "label": "固定资产报废损失"
+    },
+    {
+      "key": "FAIRVALUE_CHANGE_LOSS_YOY",
+      "label": "公允价值变动损失"
+    },
+    {
+      "key": "FINANCE_EXPENSE_YOY",
+      "label": "财务费用"
+    },
+    {
+      "key": "INVEST_LOSS_YOY",
+      "label": "投资损失"
+    },
+    {
+      "key": "DEFER_TAX_YOY",
+      "label": "递延所得税"
+    },
+    {
+      "key": "DT_ASSET_REDUCE_YOY",
+      "label": "其中:递延所得税资产减少"
+    },
+    {
+      "key": "DT_LIAB_ADD_YOY",
+      "label": "递延所得税负债增加"
+    },
+    {
+      "key": "PREDICT_LIAB_ADD_YOY",
+      "label": "预计负债的增加"
+    },
+    {
+      "key": "INVENTORY_REDUCE_YOY",
+      "label": "存货的减少"
+    },
+    {
+      "key": "OPERATE_RECE_REDUCE_YOY",
+      "label": "经营性应收项目的减少"
+    },
+    {
+      "key": "OPERATE_PAYABLE_ADD_YOY",
+      "label": "经营性应付项目的增加"
+    },
+    {
+      "key": "OTHER_YOY",
+      "label": "其他"
+    },
+    {
+      "key": "OPERATE_NETCASH_OTHERNOTE_YOY",
+      "label": "经营活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "OPERATE_NETCASH_BALANCENOTE_YOY",
+      "label": "经营活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_OPERATENOTE_YOY",
+      "label": "经营活动产生的现金流量净额"
+    },
+    {
+      "key": "DEBT_TRANSFER_CAPITAL_YOY",
+      "label": "债务转为资本"
+    },
+    {
+      "key": "CONVERT_BOND_1YEAR_YOY",
+      "label": "一年内到期的可转换公司债券"
+    },
+    {
+      "key": "FINLEASE_OBTAIN_FA_YOY",
+      "label": "融资租入固定资产"
+    },
+    {
+      "key": "UNINVOLVE_INVESTFIN_OTHER_YOY",
+      "label": "不涉及现金收支的投资和筹资活动金额其他项目"
+    },
+    {
+      "key": "END_CASH_YOY",
+      "label": "现金的期末余额"
+    },
+    {
+      "key": "BEGIN_CASH_YOY",
+      "label": "减:现金的期初余额"
+    },
+    {
+      "key": "END_CASH_EQUIVALENTS_YOY",
+      "label": "加:现金等价物的期末余额"
+    },
+    {
+      "key": "BEGIN_CASH_EQUIVALENTS_YOY",
+      "label": "减:现金等价物的期初余额"
+    },
+    {
+      "key": "CCE_ADD_OTHERNOTE_YOY",
+      "label": "现金及现金等价物净增加额其他项目"
+    },
+    {
+      "key": "CCE_ADD_BALANCENOTE_YOY",
+      "label": "现金及现金等价物净增加额平衡项目"
+    },
+    {
+      "key": "CCE_ADDNOTE_YOY",
+      "label": "现金及现金等价物的净增加额"
+    },
+    {
+      "key": "OPINION_TYP",
+      "label": "审计意见(境内)"
+    },
+    {
+      "key": "OSOPINION_TYPE",
+      "label": "审计意见(境外)"
+    },
+    {
+      "key": "SALES_SERVICES_QOQ",
+      "label": "经营活动产生的现金流量"
+    },
+    {
+      "key": "DEPOSIT_INTERBANK_ADD_QOQ",
+      "label": "客户存款和同业存放款项净增加额"
+    },
+    {
+      "key": "LOAN_PBC_ADD_QOQ",
+      "label": "向中央银行借款净增加额"
+    },
+    {
+      "key": "OFI_BF_ADD_QOQ",
+      "label": "向其他金融机构拆入资金净增加额"
+    },
+    {
+      "key": "RECEIVE_ORIGIC_PREMIUM_QOQ",
+      "label": "收到原保险合同保费取得的现金"
+    },
+    {
+      "key": "RECEIVE_REINSURE_NET_QOQ",
+      "label": "收到再保险业务现金净额"
+    },
+    {
+      "key": "INSURED_INVEST_ADD_QOQ",
+      "label": "保户储金及投资款净增加额"
+    },
+    {
+      "key": "DISPOSAL_TFA_ADD_QOQ",
+      "label": "处置交易性金融资产净增加额"
+    },
+    {
+      "key": "RECEIVE_INTEREST_COMMISSION_QOQ",
+      "label": "收取利息、手续费及佣金的现金"
+    },
+    {
+      "key": "BORROW_FUND_ADD_QOQ",
+      "label": "拆入资金净增加额"
+    },
+    {
+      "key": "LOAN_ADVANCE_REDUCE_QOQ",
+      "label": "发放贷款及垫款的净减少额"
+    },
+    {
+      "key": "REPO_BUSINESS_ADD_QOQ",
+      "label": "回购业务资金净增加额"
+    },
+    {
+      "key": "RECEIVE_TAX_REFUND_QOQ",
+      "label": "收到的税收返还"
+    },
+    {
+      "key": "RECEIVE_OTHER_OPERATE_QOQ",
+      "label": "收到其他与经营活动有关的现金"
+    },
+    {
+      "key": "OPERATE_INFLOW_OTHER_QOQ",
+      "label": "经营活动现金流入的其他项目"
+    },
+    {
+      "key": "OPERATE_INFLOW_BALANCE_QOQ",
+      "label": "经营活动现金流入的平衡项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_INFLOW_QOQ",
+      "label": "经营活动现金流入小计"
+    },
+    {
+      "key": "BUY_SERVICES_QOQ",
+      "label": "购买商品、接受劳务支付的现金"
+    },
+    {
+      "key": "LOAN_ADVANCE_ADD_QOQ",
+      "label": "客户贷款及垫款净增加额"
+    },
+    {
+      "key": "PBC_INTERBANK_ADD_QOQ",
+      "label": "存放中央银行和同业款项净增加额"
+    },
+    {
+      "key": "PAY_ORIGIC_COMPENSATE_QOQ",
+      "label": "支付原保险合同赔付等款项的现金"
+    },
+    {
+      "key": "PAY_INTEREST_COMMISSION_QOQ",
+      "label": "支付利息、手续费及佣金的现金"
+    },
+    {
+      "key": "PAY_POLICY_BONUS_QOQ",
+      "label": "支付保单红利的现金"
+    },
+    {
+      "key": "PAY_STAFF_CASH_QOQ",
+      "label": "支付给职工以及为职工支付的现金"
+    },
+    {
+      "key": "PAY_ALL_TAX_QOQ",
+      "label": "支付的各项税费"
+    },
+    {
+      "key": "PAY_OTHER_OPERATE_QOQ",
+      "label": "支付其他与经营活动有关的现金"
+    },
+    {
+      "key": "OPERATE_OUTFLOW_OTHER_QOQ",
+      "label": "经营活动现金流出的其他项目"
+    },
+    {
+      "key": "OPERATE_OUTFLOW_BALANCE_QOQ",
+      "label": "经营活动现金流出的平衡项目"
+    },
+    {
+      "key": "TOTAL_OPERATE_OUTFLOW_QOQ",
+      "label": "经营活动现金流出小计"
+    },
+    {
+      "key": "OPERATE_NETCASH_OTHER_QOQ",
+      "label": "经营活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "OPERATE_NETCASH_BALANCE_QOQ",
+      "label": "经营活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_OPERATE_QOQ",
+      "label": "经营活动产生的现金流量净额"
+    },
+    {
+      "key": "WITHDRAW_INVEST_QOQ",
+      "label": "投资活动产生的现金流量"
+    },
+    {
+      "key": "RECEIVE_INVEST_INCOME_QOQ",
+      "label": "取得投资收益收到的现金"
+    },
+    {
+      "key": "DISPOSAL_LONG_ASSET_QOQ",
+      "label": "处置固定资产、无形资产和其他长期资产收回的现金净额"
+    },
+    {
+      "key": "DISPOSAL_SUBSIDIARY_OTHER_QOQ",
+      "label": "处置子公司及其他营业单位收到的现金"
+    },
+    {
+      "key": "REDUCE_PLEDGE_TIMEDEPOSITS_QOQ",
+      "label": "减少质押和定期存款所收到的现金"
+    },
+    {
+      "key": "RECEIVE_OTHER_INVEST_QOQ",
+      "label": "收到的其他与投资活动有关的现金"
+    },
+    {
+      "key": "INVEST_INFLOW_OTHER_QOQ",
+      "label": "投资活动现金流入的其他项目"
+    },
+    {
+      "key": "INVEST_INFLOW_BALANCE_QOQ",
+      "label": "投资活动现金流入的平衡项目"
+    },
+    {
+      "key": "TOTAL_INVEST_INFLOW_QOQ",
+      "label": "投资活动现金流入小计"
+    },
+    {
+      "key": "CONSTRUCT_LONG_ASSET_QOQ",
+      "label": "购建固定资产、无形资产和其他长期资产支付的现金"
+    },
+    {
+      "key": "INVEST_PAY_CASH_QOQ",
+      "label": "投资支付的现金"
+    },
+    {
+      "key": "PLEDGE_LOAN_ADD_QOQ",
+      "label": "质押贷款净增加额"
+    },
+    {
+      "key": "OBTAIN_SUBSIDIARY_OTHER_QOQ",
+      "label": "取得子公司及其他营业单位支付的现金净额"
+    },
+    {
+      "key": "ADD_PLEDGE_TIMEDEPOSITS_QOQ",
+      "label": "增加质押和定期存款所支付的现金"
+    },
+    {
+      "key": "PAY_OTHER_INVEST_QOQ",
+      "label": "支付其他与投资活动有关的现金"
+    },
+    {
+      "key": "INVEST_OUTFLOW_OTHER_QOQ",
+      "label": "投资活动现金流出的其他项目"
+    },
+    {
+      "key": "INVEST_OUTFLOW_BALANCE_QOQ",
+      "label": "投资活动现金流出的平衡项目"
+    },
+    {
+      "key": "TOTAL_INVEST_OUTFLOW_QOQ",
+      "label": "投资活动现金流出小计"
+    },
+    {
+      "key": "INVEST_NETCASH_OTHER_QOQ",
+      "label": "投资活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "INVEST_NETCASH_BALANCE_QOQ",
+      "label": "投资活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_INVEST_QOQ",
+      "label": "投资活动产生的现金流量净额"
+    },
+    {
+      "key": "ACCEPT_INVEST_CASH_QOQ",
+      "label": "筹资活动产生的现金流量"
+    },
+    {
+      "key": "SUBSIDIARY_ACCEPT_INVEST_QOQ",
+      "label": "其中:子公司吸收少数股东投资收到的现金"
+    },
+    {
+      "key": "RECEIVE_LOAN_CASH_QOQ",
+      "label": "取得借款收到的现金"
+    },
+    {
+      "key": "ISSUE_BOND_QOQ",
+      "label": "发行债券收到的现金"
+    },
+    {
+      "key": "RECEIVE_OTHER_FINANCE_QOQ",
+      "label": "收到的其他与筹资活动有关的现金"
+    },
+    {
+      "key": "FINANCE_INFLOW_OTHER_QOQ",
+      "label": "筹资活动现金流入的其他项目"
+    },
+    {
+      "key": "FINANCE_INFLOW_BALANCE_QOQ",
+      "label": "筹资活动现金流入的平衡项目"
+    },
+    {
+      "key": "TOTAL_FINANCE_INFLOW_QOQ",
+      "label": "筹资活动现金流入小计"
+    },
+    {
+      "key": "PAY_DEBT_CASH_QOQ",
+      "label": "偿还债务所支付的现金"
+    },
+    {
+      "key": "ASSIGN_DIVIDEND_PORFIT_QOQ",
+      "label": "分配股利、利润或偿付利息支付的现金"
+    },
+    {
+      "key": "SUBSIDIARY_PAY_DIVIDEND_QOQ",
+      "label": "其中:子公司支付给少数股东的股利、利润"
+    },
+    {
+      "key": "BUY_SUBSIDIARY_EQUITY_QOQ",
+      "label": "购买子公司少数股权而支付的现金"
+    },
+    {
+      "key": "PAY_OTHER_FINANCE_QOQ",
+      "label": "支付的其他与筹资活动有关的现金"
+    },
+    {
+      "key": "SUBSIDIARY_REDUCE_CASH_QOQ",
+      "label": "其中:子公司减资支付给少数股东的现金"
+    },
+    {
+      "key": "FINANCE_OUTFLOW_OTHER_QOQ",
+      "label": "筹资活动现金流出的其他项目"
+    },
+    {
+      "key": "FINANCE_OUTFLOW_BALANCE_QOQ",
+      "label": "筹资活动现金流出的平衡项目"
+    },
+    {
+      "key": "TOTAL_FINANCE_OUTFLOW_QOQ",
+      "label": "筹资活动现金流出小计"
+    },
+    {
+      "key": "FINANCE_NETCASH_OTHER_QOQ",
+      "label": "筹资活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "FINANCE_NETCASH_BALANCE_QOQ",
+      "label": "筹资活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_FINANCE_QOQ",
+      "label": "筹资活动产生的现金流量净额"
+    },
+    {
+      "key": "RATE_CHANGE_EFFECT_QOQ",
+      "label": "汇率变动对现金及现金等价物的影响"
+    },
+    {
+      "key": "CCE_ADD_OTHER_QOQ",
+      "label": "现金及现金等价物净增加额其他项目"
+    },
+    {
+      "key": "CCE_ADD_BALANCE_QOQ",
+      "label": "现金及现金等价物净增加额平衡项目"
+    },
+    {
+      "key": "CCE_ADD_QOQ",
+      "label": "现金及现金等价物净增加额"
+    },
+    {
+      "key": "BEGIN_CCE_QOQ",
+      "label": "加:期初现金及现金等价物余额"
+    },
+    {
+      "key": "END_CCE_OTHER_QOQ",
+      "label": "期末现金及现金等价物余额其他项目"
+    },
+    {
+      "key": "END_CCE_BALANCE_QOQ",
+      "label": "期末现金及现金等价物余额平衡项目"
+    },
+    {
+      "key": "END_CCE_QOQ",
+      "label": "期末现金及现金等价物余额"
+    },
+    {
+      "key": "NETPROFIT_QOQ",
+      "label": "补充资料"
+    },
+    {
+      "key": "MINORITY_INTEREST_QOQ",
+      "label": "少数股东损益"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_QOQ",
+      "label": "资产减值准备"
+    },
+    {
+      "key": "FA_IR_DEPR_QOQ",
+      "label": "固定资产和投资性房地产折旧"
+    },
+    {
+      "key": "OILGAS_BIOLOGY_DEPR_QOQ",
+      "label": "其中:固定资产折旧、油气资产折耗、生产性生物资产折旧"
+    },
+    {
+      "key": "IR_DEPR_QOQ",
+      "label": "投资性房地产折旧"
+    },
+    {
+      "key": "IA_AMORTIZE_QOQ",
+      "label": "无形资产摊销"
+    },
+    {
+      "key": "LPE_AMORTIZE_QOQ",
+      "label": "长期待摊费用摊销"
+    },
+    {
+      "key": "DEFER_INCOME_AMORTIZE_QOQ",
+      "label": "递延收益摊销"
+    },
+    {
+      "key": "PREPAID_EXPENSE_REDUCE_QOQ",
+      "label": "待摊费用的减少"
+    },
+    {
+      "key": "ACCRUED_EXPENSE_ADD_QOQ",
+      "label": "预提费用的增加"
+    },
+    {
+      "key": "DISPOSAL_LONGASSET_LOSS_QOQ",
+      "label": "处置固定资产、无形资产和其他长期资产的损失"
+    },
+    {
+      "key": "FA_SCRAP_LOSS_QOQ",
+      "label": "固定资产报废损失"
+    },
+    {
+      "key": "FAIRVALUE_CHANGE_LOSS_QOQ",
+      "label": "公允价值变动损失"
+    },
+    {
+      "key": "FINANCE_EXPENSE_QOQ",
+      "label": "财务费用"
+    },
+    {
+      "key": "INVEST_LOSS_QOQ",
+      "label": "投资损失"
+    },
+    {
+      "key": "DEFER_TAX_QOQ",
+      "label": "递延所得税"
+    },
+    {
+      "key": "DT_ASSET_REDUCE_QOQ",
+      "label": "其中:递延所得税资产减少"
+    },
+    {
+      "key": "DT_LIAB_ADD_QOQ",
+      "label": "递延所得税负债增加"
+    },
+    {
+      "key": "PREDICT_LIAB_ADD_QOQ",
+      "label": "预计负债的增加"
+    },
+    {
+      "key": "INVENTORY_REDUCE_QOQ",
+      "label": "存货的减少"
+    },
+    {
+      "key": "OPERATE_RECE_REDUCE_QOQ",
+      "label": "经营性应收项目的减少"
+    },
+    {
+      "key": "OPERATE_PAYABLE_ADD_QOQ",
+      "label": "经营性应付项目的增加"
+    },
+    {
+      "key": "OTHER_QOQ",
+      "label": "其他"
+    },
+    {
+      "key": "OPERATE_NETCASH_OTHERNOTE_QOQ",
+      "label": "经营活动产生的现金流量净额其他项目"
+    },
+    {
+      "key": "OPERATE_NETCASH_BALANCENOTE_QOQ",
+      "label": "经营活动产生的现金流量净额平衡项目"
+    },
+    {
+      "key": "NETCASH_OPERATENOTE_QOQ",
+      "label": "经营活动产生的现金流量净额"
+    },
+    {
+      "key": "DEBT_TRANSFER_CAPITAL_QOQ",
+      "label": "债务转为资本"
+    },
+    {
+      "key": "CONVERT_BOND_1YEAR_QOQ",
+      "label": "一年内到期的可转换公司债券"
+    },
+    {
+      "key": "FINLEASE_OBTAIN_FA_QOQ",
+      "label": "融资租入固定资产"
+    },
+    {
+      "key": "UNINVOLVE_INVESTFIN_OTHER_QOQ",
+      "label": "不涉及现金收支的投资和筹资活动金额其他项目"
+    },
+    {
+      "key": "END_CASH_QOQ",
+      "label": "现金的期末余额"
+    },
+    {
+      "key": "BEGIN_CASH_QOQ",
+      "label": "减:现金的期初余额"
+    },
+    {
+      "key": "END_CASH_EQUIVALENTS_QOQ",
+      "label": "加:现金等价物的期末余额"
+    },
+    {
+      "key": "BEGIN_CASH_EQUIVALENTS_QOQ",
+      "label": "减:现金等价物的期初余额"
+    },
+    {
+      "key": "CCE_ADD_OTHERNOTE_QOQ",
+      "label": "现金及现金等价物净增加额其他项目"
+    },
+    {
+      "key": "CCE_ADD_BALANCENOTE_QOQ",
+      "label": "现金及现金等价物净增加额平衡项目"
+    },
+    {
+      "key": "CCE_ADDNOTE_QOQ",
+      "label": "现金及现金等价物的净增加额"
+    },
+    {
+      "key": "REPORT_DATE",
+      "label": "&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;货币资金"
+    },
+    {
+      "key": "OPERATE_COST",
+      "label": "&ensp;&ensp;&ensp;&ensp;营业成本(元)"
+    },
+    {
+      "key": "OPERATE_TAX_ADD",
+      "label": "&ensp;&ensp;&ensp;&ensp;税金及附加(元)"
+    },
+    {
+      "key": "TOTAL_EXPENSE",
+      "label": "&ensp;&ensp;&ensp;&ensp;期间费用(元)"
+    },
+    {
+      "key": "SALE_EXPENSE",
+      "label": "&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;销售费用(元)"
+    },
+    {
+      "key": "MANAGE_EXPENSE",
+      "label": "&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;管理费用(元)"
+    },
+    {
+      "key": "RESEARCH_EXPENSE",
+      "label": "&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;研发费用(元)"
+    },
+    {
+      "key": "FINANCE_EXPENSE",
+      "label": "&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;财务费用(元)"
+    },
+    {
+      "key": "OTHER_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;其他收益(元)"
+    },
+    {
+      "key": "INVEST_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;投资收益(元)"
+    },
+    {
+      "key": "FAIRVALUE_CHANGE_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;公允价值变动收益(元)"
+    },
+    {
+      "key": "CREDIT_IMPAIRMENT_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;信用减值损失(元)"
+    },
+    {
+      "key": "ASSET_IMPAIRMENT_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;资产减值损失(元)"
+    },
+    {
+      "key": "ASSET_DISPOSAL_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;资产处置收益(元)"
+    },
+    {
+      "key": "NONBUSINESS_INCOME",
+      "label": "&ensp;&ensp;&ensp;&ensp;加:营业外收入(元)"
+    },
+    {
+      "key": "NONBUSINESS_EXPENSE",
+      "label": "&ensp;&ensp;&ensp;&ensp;减:营业外支出(元)"
+    },
+    {
+      "key": "INCOME_TAX",
+      "label": "&ensp;&ensp;&ensp;&ensp;减:所得税费用(元)"
+    }
+  ]
+}

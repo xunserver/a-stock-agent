@@ -13,11 +13,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from astock_control.adapters.analyze import AnalyzeRunner
 from astock_control.adapters.ingest import IngestRunner
 from astock_control.adapters.pool import PoolRunner
+from astock_control.adapters.qlib import QlibRunner
 from astock_control.adapters.stock import StockRunner
+from astock_control.automation_api import router as automation_router
+from astock_control.automations import AutomationManager
 from astock_control.config import SettingsRunner
 from astock_control.engine import DispatchRunner, Engine
-from astock_control.protocol import ProtocolError, TERMINAL_JOB_STATUSES
+from astock_control.protocol import TERMINAL_JOB_STATUSES, ProtocolError
 from astock_control.queries import handle_query
+from astock_control.scheduler import Scheduler
 
 
 def create_app(engine: Engine | None = None) -> FastAPI:
@@ -25,30 +29,47 @@ def create_app(engine: Engine | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        eng = supplied if supplied is not None else Engine(
-            DispatchRunner(
-                {
-                    "quotes.sync": IngestRunner(),
-                    "boards.sync": IngestRunner(),
-                    "stock.sync": IngestRunner(),
-                    "analyze.run": AnalyzeRunner(),
-                    "stock.add": StockRunner(),
-                    "stock.remove": StockRunner(),
-                    "pool.add": PoolRunner(),
-                    "pool.set": IngestRunner(),
-                    "pool.remove": PoolRunner(),
-                    "pool.create": PoolRunner(),
-                    "pool.delete": PoolRunner(),
-                    "settings.update": SettingsRunner(),
-                }
-            ),
-            handle_query,
+        eng = (
+            supplied
+            if supplied is not None
+            else Engine(
+                DispatchRunner(
+                    {
+                        "quotes.sync": IngestRunner(),
+                        "boards.sync": IngestRunner(),
+                        "stock.sync": IngestRunner(),
+                        "analyze.run": AnalyzeRunner(),
+                        "qlib.run": QlibRunner(),
+                        "qlib.dump": QlibRunner(),
+                        "qlib.workflow.update": QlibRunner(),
+                        "stock.add": StockRunner(),
+                        "stock.remove": StockRunner(),
+                        "pool.add": PoolRunner(),
+                        "pool.set": IngestRunner(),
+                        "pool.remove": PoolRunner(),
+                        "pool.reorder": PoolRunner(),
+                        "pool.create": PoolRunner(),
+                        "pool.delete": PoolRunner(),
+                        "settings.update": SettingsRunner(),
+                    }
+                ),
+                handle_query,
+            )
         )
         eng.start()
         app.state.engine = eng
+        manager = AutomationManager(eng.store, eng)
+        manager.seed_legacy_quotes()
+        app.state.automation_manager = manager
+        scheduler = None if supplied is not None else Scheduler(eng, eng.store)
+        if scheduler is not None:
+            scheduler.start()
+        app.state.scheduler = scheduler
         try:
             yield
         finally:
+            if scheduler is not None:
+                scheduler.stop()
             eng.stop()
 
     app = FastAPI(title="astock-control", lifespan=lifespan)
@@ -65,6 +86,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(automation_router)
 
     @app.exception_handler(ProtocolError)
     async def protocol_error(_request: Request, exc: ProtocolError) -> JSONResponse:
@@ -94,9 +116,32 @@ def create_app(engine: Engine | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/api/jobs")
-    def list_jobs(request: Request) -> dict[str, Any]:
-        jobs = _engine(request).list_jobs()
-        return {"jobs": [job.to_dict(include_log=False) for job in jobs]}
+    def list_jobs(
+        request: Request,
+        automation_id: str | None = None,
+        date: str | None = None,
+        trigger: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        engine = _engine(request)
+        jobs = engine.list_jobs(
+            automation_id=automation_id,
+            date=date,
+            trigger=trigger,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "jobs": [job.to_dict(include_log=False) for job in jobs],
+            "count": engine.store.count_jobs(
+                automation_id=automation_id,
+                date=date,
+                trigger=trigger,
+            ),
+            "limit": limit,
+            "offset": offset,
+        }
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, request: Request) -> dict[str, Any]:

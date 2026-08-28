@@ -1,28 +1,74 @@
-DEFAULT_ADJUST = "qfq"
-HISTORY_START = "20050101"
-QUOTE_PERIODS = ("daily", "weekly", "monthly")
-DEFAULT_YEARS = 5
-HS300_SYMBOL = "000300"
-HS300_INDEX_CODE = "sh000300"
-REQUEST_SLEEP_SECONDS = 0.35
-REQUEST_RETRIES = 3
+"""Ingest 运行时配置：一律从 system.db 读取，默认值只在 settings catalog 播种。"""
 
-MAJOR_INDEXES = (
-    ("sh000001", "上证指数"),
-    ("sz399001", "深证成指"),
-    ("sz399006", "创业板指"),
-    ("sh000300", "沪深300"),
-    ("sh000905", "中证500"),
-    ("sh000852", "中证1000"),
-    ("sh000688", "科创50"),
-)
+from __future__ import annotations
 
-# 别名 -> 中证/指数代码。pool add --index 用这个快速填池。
-INDEX_ALIASES = {
-    "hs300": "000300",
-    "zz500": "000905",
-    "zz1000": "000852",
-    "sz50": "000016",
-    "kc50": "000688",
-    "cyb": "399006",  # 创业板指
-}
+from typing import Any
+
+from astock_core.settings import SystemDB
+
+_QUOTES: dict[str, Any] | None = None
+_INDEXES: dict[str, Any] | None = None
+
+
+def clear_settings_cache() -> None:
+    global _QUOTES, _INDEXES
+    _QUOTES = None
+    _INDEXES = None
+
+
+def quotes_settings() -> dict[str, Any]:
+    global _QUOTES
+    if _QUOTES is None:
+        with SystemDB() as db:
+            _QUOTES = db.get_values("ingest", "quotes")
+    return dict(_QUOTES)
+
+
+def indexes_settings() -> dict[str, Any]:
+    global _INDEXES
+    if _INDEXES is None:
+        with SystemDB() as db:
+            _INDEXES = db.get_values("ingest", "indexes")
+    return dict(_INDEXES)
+
+
+def history_start() -> str:
+    return str(quotes_settings()["history_start"])
+
+
+def quote_periods() -> tuple[str, ...]:
+    return tuple(str(item) for item in quotes_settings()["periods"])
+
+
+def request_sleep_seconds() -> float:
+    return float(quotes_settings()["sleep"])
+
+
+def request_retries() -> int:
+    return int(quotes_settings()["retries"])
+
+
+def default_adjust() -> str:
+    return str(quotes_settings()["adjust"])
+
+
+def default_years() -> int:
+    return int(quotes_settings()["default_years"])
+
+
+def hs300_symbol() -> str:
+    return str(indexes_settings()["hs300_symbol"])
+
+
+def hs300_index_code() -> str:
+    return str(indexes_settings()["hs300_index_code"])
+
+
+def major_indexes() -> tuple[tuple[str, str], ...]:
+    items = indexes_settings()["major_indexes"]
+    return tuple((str(item["code"]), str(item["name"])) for item in items)
+
+
+def index_aliases() -> dict[str, str]:
+    raw = indexes_settings()["aliases"]
+    return {str(key): str(value) for key, value in raw.items()}

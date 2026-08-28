@@ -77,7 +77,7 @@ def test_settings_get_and_update() -> None:
         body = current.json()
         assert body["pool"] == "default"
         assert body["adjust"] == "qfq"
-        assert body["quotes"]["sync_time"] == "16:10"
+        assert body["quotes"]["sync_time"] == "16:30"
         assert "db" in body["paths"]
         assert "analyze" in body["paths"]
         assert "analyze" in body

@@ -30,12 +30,16 @@ export function jobTypeLabel(type: string) {
   if (type === "quotes.sync") return "同步行情"
   if (type === "stock.sync") return "同步股票资料与行情"
   if (type === "boards.sync") return "同步板块"
-  if (type === "analyze.run") return "运行股票分析"
+  if (type === "analyze.run") return "运行 AI 分析"
+  if (type === "qlib.run") return "运行量化选股"
+  if (type === "qlib.dump") return "准备量化数据"
+  if (type === "qlib.workflow.update") return "更新量化选股配置"
   if (type === "stock.add") return "加入股票"
   if (type === "stock.remove") return "移除股票"
   if (type === "pool.add") return "添加股票池成员"
   if (type === "pool.set") return "覆盖股票池成员"
   if (type === "pool.remove") return "移出股票池成员"
+  if (type === "pool.reorder") return "调整股票池顺序"
   if (type === "pool.create") return "创建股票池"
   if (type === "pool.delete") return "删除股票池"
   if (type === "settings.update") return "更新设置"
@@ -65,6 +69,8 @@ const PARAM_LABELS: Record<string, string> = {
   name: "名称",
   settings: "设置",
   values: "取值",
+  workflow: "工作流",
+  run_id: "运行 ID",
 }
 
 const BOARD_KIND_LABELS: Record<string, string> = {

@@ -11,11 +11,13 @@ import {
 } from "react"
 import { useLocation } from "react-router"
 
+import { JobCancelDialog } from "@/components/job-cancel-dialog"
 import { JobDetailSheet } from "@/components/job-detail-sheet"
 import { JobTracker } from "@/components/job-tracker"
 import { listJobs, cancelJob as requestCancel, type Job } from "@/lib/api"
 import { readDismissedJobs, writeDismissedJobs } from "@/lib/job-dismiss"
 import {
+  isOpenJob,
   selectTrackerJobs,
   shouldPollJobs,
   SUCCESS_VISIBILITY_MS,
@@ -46,6 +48,9 @@ export function JobProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openJobId, setOpenJobId] = useState<string | null>(null)
+  const [pendingCancelId, setPendingCancelId] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const [dismissed, setDismissed] = useState<Set<string>>(readDismissedJobs)
   const [clock, setClock] = useState(Date.now)
   const callbacksRef = useRef(new Map<string, TrackOptions>())
@@ -153,6 +158,26 @@ export function JobProvider({ children }: { children: ReactNode }) {
     [mergeJob]
   )
 
+  const requestCancelJob = useCallback((jobId: string) => {
+    setCancelError(null)
+    setPendingCancelId(jobId)
+  }, [])
+
+  const pendingCancelJob = useMemo(
+    () => jobs.find((job) => job.id === pendingCancelId) ?? null,
+    [jobs, pendingCancelId]
+  )
+
+  useEffect(() => {
+    if (!pendingCancelJob) {
+      return
+    }
+    if (!isOpenJob(pendingCancelJob.status)) {
+      setPendingCancelId(null)
+      setCancelling(false)
+    }
+  }, [pendingCancelJob])
+
   const trackJob = useCallback(
     (job: Job, options?: TrackOptions) => {
       if (options) callbacksRef.current.set(job.id, options)
@@ -184,11 +209,7 @@ export function JobProvider({ children }: { children: ReactNode }) {
         overflow={Math.max(0, trackerJobs.length - TRACKER_JOB_LIMIT)}
         onOpen={setOpenJobId}
         onDismiss={dismissJob}
-        onCancel={(jobId) => {
-          void cancelTrackedJob(jobId).catch((reason: unknown) => {
-            setError(reason instanceof Error ? reason.message : "取消任务失败")
-          })
-        }}
+        onCancel={requestCancelJob}
       />
       <JobDetailSheet
         jobId={openJobId}
@@ -196,6 +217,37 @@ export function JobProvider({ children }: { children: ReactNode }) {
           if (!open) setOpenJobId(null)
         }}
         onDone={mergeJob}
+        onRequestCancel={requestCancelJob}
+      />
+      <JobCancelDialog
+        job={pendingCancelId ? pendingCancelJob : null}
+        busy={cancelling}
+        error={cancelError}
+        onOpenChange={(open) => {
+          if (!open && !cancelling) {
+            setPendingCancelId(null)
+            setCancelError(null)
+          }
+        }}
+        onConfirm={() => {
+          if (!pendingCancelId) {
+            return
+          }
+          setCancelling(true)
+          setCancelError(null)
+          void cancelTrackedJob(pendingCancelId)
+            .then(() => {
+              setPendingCancelId(null)
+            })
+            .catch((reason: unknown) => {
+              setCancelError(
+                reason instanceof Error ? reason.message : "取消任务失败"
+              )
+            })
+            .finally(() => {
+              setCancelling(false)
+            })
+        }}
       />
     </JobContext.Provider>
   )

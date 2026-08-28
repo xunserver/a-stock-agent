@@ -7,19 +7,20 @@ from datetime import date, timedelta
 import pandas as pd
 
 from astock.config import (
-    DEFAULT_ADJUST,
-    DEFAULT_YEARS,
-    HISTORY_START,
-    HS300_INDEX_CODE,
-    HS300_SYMBOL,
-    MAJOR_INDEXES,
-    QUOTE_PERIODS,
-    REQUEST_RETRIES,
-    REQUEST_SLEEP_SECONDS,
+    default_adjust,
+    default_years,
+    history_start,
+    hs300_index_code,
+    hs300_symbol,
+    major_indexes,
+    quote_periods,
+    request_retries,
+    request_sleep_seconds,
 )
 from astock import eastmoney
 from astock_core.db import INGEST_KINDS, MarketDB, _ymd
 from astock_core.paths import DATA_DIR
+from astock_core.session import MARKET_CN_A
 
 logger = logging.getLogger(__name__)
 
@@ -33,27 +34,38 @@ def _next_day_yyyymmdd(iso_date: str) -> str:
     return dt.strftime("%Y%m%d")
 
 
-def _call(fn, *args, retries: int = REQUEST_RETRIES, **kwargs):
+def _call(fn, *args, retries: int | None = None, **kwargs):
+    attempts = request_retries() if retries is None else retries
     last_error: Exception | None = None
-    for attempt in range(1, retries + 1):
+    for attempt in range(1, attempts + 1):
         try:
             return fn(*args, **kwargs)
         except Exception as exc:  # akshare 上游站点不稳定
             last_error = exc
             wait = min(2 ** attempt, 16)
-            logger.warning("调用失败 %s/%s: %s，%ss 后重试", attempt, retries, exc, wait)
+            logger.warning("调用失败 %s/%s: %s，%ss 后重试", attempt, attempts, exc, wait)
             time.sleep(wait)
     assert last_error is not None
     raise last_error
 
 
-def ingest_calendar(db: MarketDB) -> int:
+def ingest_calendar(
+    db: MarketDB,
+    *,
+    force: bool = False,
+    market_id: str = MARKET_CN_A,
+) -> int:
     import akshare as ak
+
+    if not force and db.calendar_synced_today(market_id=market_id):
+        logger.info("交易日历今日已同步，跳过")
+        return 0
 
     logger.info("拉取交易日历")
     frame = _call(ak.tool_trade_date_hist_sina)
     dates = frame["trade_date"].tolist()
-    n = db.replace_calendar(dates)
+    n = db.replace_calendar(dates, market_id=market_id)
+    db.mark_calendar_synced(market_id=market_id, rows=n)
     logger.info("交易日历写入 %s 条", n)
     return n
 
@@ -75,7 +87,7 @@ def ingest_stocks(db: MarketDB) -> int:
 
 def _years_start(years: int | None) -> str:
     if not years:
-        return HISTORY_START
+        return history_start()
     today = date.today()
     try:
         start = today.replace(year=today.year - years)
@@ -89,7 +101,7 @@ def fetch_hs300_members() -> list[tuple[str, str]]:
 
     logger.info("拉取沪深300成分股")
     try:
-        frame = _call(ak.index_stock_cons_csindex, symbol=HS300_SYMBOL)
+        frame = _call(ak.index_stock_cons_csindex, symbol=hs300_symbol())
         members = [
             (str(code).zfill(6), str(name))
             for code, name in zip(frame["成分券代码"], frame["成分券名称"], strict=True)
@@ -99,7 +111,7 @@ def fetch_hs300_members() -> list[tuple[str, str]]:
     except Exception as exc:
         logger.warning("中证官网失败，改用新浪：%s", exc)
 
-    frame = _call(ak.index_stock_cons_sina, symbol=HS300_SYMBOL)
+    frame = _call(ak.index_stock_cons_sina, symbol=hs300_symbol())
     code_col = "code" if "code" in frame.columns else frame.columns[0]
     name_col = "name" if "name" in frame.columns else frame.columns[1]
     members = [
@@ -126,8 +138,8 @@ def ingest_indexes(
 ) -> int:
     total = 0
     end = _today_yyyymmdd()
-    begin = start_date or HISTORY_START
-    targets = indexes or MAJOR_INDEXES
+    begin = start_date or history_start()
+    targets = indexes or major_indexes()
     for code, name in targets:
         last = db.last_index_date(code)
         start = _next_day_yyyymmdd(last) if last else begin
@@ -163,7 +175,7 @@ def ingest_indexes(
             rows=written,
         )
         total += written
-        time.sleep(REQUEST_SLEEP_SECONDS)
+        time.sleep(request_sleep_seconds())
     logger.info("指数日线写入 %s 条", total)
     return total
 
@@ -207,7 +219,7 @@ def _fetch_stock_bars(
     adjust: str,
     period: str = "daily",
 ) -> pd.DataFrame:
-    if period not in QUOTE_PERIODS:
+    if period not in INGEST_KINDS:
         raise ValueError(f"不支持的 K 线周期: {period}")
     try:
         return eastmoney.stock_kline(code, start, end, adjust=adjust, period=period)
@@ -288,42 +300,51 @@ def ingest_bars(
     *,
     codes: list[str] | None = None,
     limit: int | None = None,
-    adjust: str = DEFAULT_ADJUST,
-    sleep: float = REQUEST_SLEEP_SECONDS,
+    adjust: str | None = None,
+    sleep: float | None = None,
     start_date: str | None = None,
     period: str = "daily",
 ) -> dict[str, int]:
-    if period not in QUOTE_PERIODS:
+    periods = quote_periods()
+    if period not in INGEST_KINDS:
         raise ValueError(f"不支持的 K 线周期: {period}")
+    if period not in periods:
+        raise ValueError(f"设置未启用的 K 线周期: {period}")
     ingest_kind = INGEST_KINDS[period]
     universe = codes if codes is not None else db.stock_codes()
     if limit is not None:
         universe = universe[:limit]
-    last_cal = db.last_calendar_date()
+    last_cal = db.current_trade_date()
     end = _today_yyyymmdd()
-    history_start = start_date or HISTORY_START
+    resolved_adjust = default_adjust() if adjust is None else adjust
+    resolved_sleep = request_sleep_seconds() if sleep is None else sleep
+    history = start_date or history_start()
     stats = {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
     total = len(universe)
     logger.info(
-        "开始逐只拉取%s线：%s 只，复权=%s，起点=%s，截止日历=%s",
-        {"daily": "日", "weekly": "周", "monthly": "月"}[period],
+        "开始逐只拉取%s线：%s 只，复权=%s，起点=%s，截止交易日=%s",
+        {"daily": "日", "weekly": "周", "monthly": "月"}.get(period, period),
         total,
-        adjust,
-        history_start,
+        resolved_adjust,
+        history,
         last_cal,
     )
 
     for i, code in enumerate(universe, start=1):
-        last = db.last_bar_date(code, adjust=adjust, period=period)
+        last = db.last_bar_date(code, adjust=resolved_adjust, period=period)
         if last and last_cal and last >= last_cal:
             stats["skip"] += 1
             continue
-        start = _next_day_yyyymmdd(last) if last else history_start
-        if start < history_start:
-            start = history_start
+        start = _next_day_yyyymmdd(last) if last else history
+        if start < history:
+            start = history
         try:
-            frame = _call(_fetch_stock_bars, code, start, end, adjust, period)
-            rows = _bars_from_frame(code, frame, adjust) if frame is not None and not frame.empty else []
+            frame = _call(_fetch_stock_bars, code, start, end, resolved_adjust, period)
+            rows = (
+                _bars_from_frame(code, frame, resolved_adjust)
+                if frame is not None and not frame.empty
+                else []
+            )
             written = db.upsert_bars(rows, period=period)
             last_date = rows[-1][1] if rows else last
             status = "ok" if rows else "empty"
@@ -331,7 +352,7 @@ def ingest_bars(
                 code,
                 ingest_kind,
                 status,
-                adjust=adjust,
+                adjust=resolved_adjust,
                 last_trade_date=last_date,
                 rows=written,
             )
@@ -350,28 +371,32 @@ def ingest_bars(
                     stats["error"],
                 )
         except Exception as exc:
-            db.mark_ingest(code, ingest_kind, "error", adjust=adjust, error=str(exc)[:500])
+            db.mark_ingest(
+                code, ingest_kind, "error", adjust=resolved_adjust, error=str(exc)[:500]
+            )
             stats["error"] += 1
             logger.warning("股票 %s %s线失败: %s", code, period, exc)
-        time.sleep(sleep)
+        time.sleep(resolved_sleep)
     return stats
 
 
 def ingest_hs300(
     db: MarketDB,
     *,
-    years: int = DEFAULT_YEARS,
+    years: int | None = None,
     limit: int | None = None,
-    sleep: float = REQUEST_SLEEP_SECONDS,
-    adjust: str = DEFAULT_ADJUST,
+    sleep: float | None = None,
+    adjust: str | None = None,
 ) -> dict[str, int]:
-    start_date = _years_start(years)
+    resolved_years = default_years() if years is None else years
+    start_date = _years_start(resolved_years)
+    index_code = hs300_index_code()
     result = {
         "calendar": ingest_calendar(db),
         "hs300_members": ingest_hs300_members(db),
         "indexes": ingest_indexes(
             db,
-            indexes=((HS300_INDEX_CODE, "沪深300"),),
+            indexes=((index_code, "沪深300"),),
             start_date=start_date,
         ),
     }

@@ -37,6 +37,10 @@ def quotes_sync_argv(command: dict[str, Any]) -> list[str]:
         argv.extend(["--adjust", str(command["adjust"])])
     if command.get("sleep") is not None:
         argv.extend(["--sleep", str(command["sleep"])])
+    if command.get("history_start") is not None:
+        argv.extend(["--history-start", str(command["history_start"])])
+    if command.get("periods"):
+        argv.extend(["--periods", ",".join(str(item) for item in command["periods"])])
     if command.get("limit") is not None:
         argv.extend(["--limit", str(command["limit"])])
     return argv
@@ -90,19 +94,29 @@ def stock_command_argv(command: dict[str, Any]) -> list[str]:
         return argv
     if typ == "stock.sync":
         argv.extend(["stock", "sync", ",".join(str(code) for code in command.get("codes") or [])])
+        if command.get("sleep") is not None:
+            argv.extend(["--sleep", str(command["sleep"])])
+        if command.get("with_statements"):
+            argv.append("--statements")
         return argv
     raise ValueError(f"无法为命令生成 ingest argv: {typ}")
 
 
 def parse_trailing_json(text: str) -> dict[str, Any] | None:
-    start = text.find("{")
-    if start < 0:
-        return None
-    try:
-        data, _ = json.JSONDecoder().raw_decode(text, start)
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+    last: dict[str, Any] | None = None
+    idx = 0
+    while True:
+        start = text.find("{", idx)
+        if start < 0:
+            return last
+        try:
+            data, end = json.JSONDecoder().raw_decode(text, start)
+        except json.JSONDecodeError:
+            idx = start + 1
+            continue
+        if isinstance(data, dict):
+            last = data
+        idx = max(end, start + 1)
 
 
 class IngestRunner:

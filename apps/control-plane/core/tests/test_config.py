@@ -15,8 +15,14 @@ def test_defaults_when_file_missing() -> None:
     assert settings["pool"] == "default"
     assert settings["adjust"] == "qfq"
     assert settings["quotes"]["sync_enabled"] is False
-    assert settings["quotes"]["sync_time"] == "16:10"
+    assert settings["quotes"]["sync_time"] == "16:30"
     assert settings["quotes"]["sleep"] == 0.35
+    assert settings["quotes"]["history_start"] == "20000101"
+    assert settings["quotes"]["periods"] == ["daily", "weekly", "monthly"]
+    assert settings["quotes"]["retries"] == 3
+    assert settings["quotes"]["default_years"] == 5
+    assert settings["indexes"]["hs300_symbol"] == "000300"
+    assert settings["indexes"]["aliases"]["hs300"] == "000300"
     assert settings["analyze"]["llm_provider"] == "openai_compatible"
     assert settings["analyze"]["analysts"] == ["market", "news", "fundamentals"]
     assert settings["analyze"]["api_key"] == ""
@@ -51,7 +57,12 @@ def test_preview_rejects_nan_sleep() -> None:
 
 
 def test_quotes_sync_inherits_saved_defaults() -> None:
-    write_settings({"adjust": "hfq", "quotes": {"sleep": 0.9}})
+    write_settings(
+        {
+            "adjust": "hfq",
+            "quotes": {"sleep": 0.9, "history_start": "20000101"},
+        }
+    )
     runner = FakeRunner()
     engine = Engine(runner, lambda q: {})
     engine.start()
@@ -61,6 +72,8 @@ def test_quotes_sync_inherits_saved_defaults() -> None:
         assert runner.calls[0]["sleep"] == 0.9
         assert runner.calls[0]["adjust"] == "hfq"
         assert runner.calls[0]["pool"] == "default"
+        assert runner.calls[0]["history_start"] == "20000101"
+        assert runner.calls[0]["periods"] == ["daily", "weekly", "monthly"]
     finally:
         engine.stop()
 

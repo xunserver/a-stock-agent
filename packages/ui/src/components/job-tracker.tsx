@@ -1,6 +1,9 @@
+import { useState } from "react"
 import { Link } from "react-router"
 import {
   CheckCircle2Icon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CircleAlertIcon,
   ListTodoIcon,
   XIcon,
@@ -8,7 +11,13 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import type { Job } from "@/lib/api"
 import {
@@ -18,6 +27,8 @@ import {
   jobStatusVariant,
   trackerJobDetail,
 } from "@/lib/jobs"
+import { patchUiPrefs, readUiPrefs } from "@/lib/ui-prefs"
+import { cn } from "@/lib/utils"
 
 export function JobTracker({
   jobs,
@@ -34,17 +45,52 @@ export function JobTracker({
   onDismiss: (jobId: string) => void
   onCancel: (jobId: string) => void
 }) {
+  const [collapsed, setCollapsed] = useState(
+    () => readUiPrefs().jobTrackerCollapsed
+  )
+
   if (jobs.length === 0) return null
+
+  const running = jobs.some((job) => isOpenJob(job.status))
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current
+      patchUiPrefs({ jobTrackerCollapsed: next })
+      return next
+    })
+  }
 
   return (
     <div className="fixed right-4 bottom-4 z-40 w-[min(22rem,calc(100vw-2rem))]">
       <Card className="gap-0 overflow-hidden py-0 shadow-lg">
-        <CardHeader className="border-b py-3">
+        <CardHeader
+          className={cn("items-center py-3", !collapsed && "border-b")}
+        >
           <CardTitle className="flex items-center gap-2 text-sm">
-            <ListTodoIcon className="size-4" />
+            {running ? (
+              <Spinner className="size-4" />
+            ) : (
+              <ListTodoIcon className="size-4" />
+            )}
             后台任务
+            {collapsed ? (
+              <Badge variant="secondary">{jobs.length}</Badge>
+            ) : null}
           </CardTitle>
+          <CardAction>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "展开后台任务" : "缩小后台任务"}
+              onClick={toggleCollapsed}
+            >
+              {collapsed ? <ChevronUpIcon /> : <ChevronDownIcon />}
+            </Button>
+          </CardAction>
         </CardHeader>
+        {collapsed ? null : (
         <CardContent className="divide-y p-0">
           {jobs.map((job) => (
             <div
@@ -111,6 +157,7 @@ export function JobTracker({
             </Button>
           ) : null}
         </CardContent>
+        )}
       </Card>
     </div>
   )

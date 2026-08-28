@@ -3,12 +3,19 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from astock.config import REQUEST_SLEEP_SECONDS
+from astock.config import default_adjust, request_sleep_seconds
 from astock.ingest import _call
-from astock.profile import PROFILE_VALUE_KEYS, load_profiles
+from astock.financial import sync_financial_statements
+from astock.profile import (
+    BATCH_MIN_CODES,
+    PROFILE_VALUE_KEYS,
+    fetch_financial_reports,
+    load_profiles,
+    sync_financial_summaries_batch,
+)
 from astock.quotes import sync_quotes
 from astock_core.db import MarketDB
-from astock_core.paths import DEFAULT_ADJUST, DEFAULT_POOL_ID
+from astock_core.paths import DEFAULT_POOL_ID
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +65,30 @@ def sync_stock_info(
     db: MarketDB,
     codes: list[str],
     *,
-    sleep: float = REQUEST_SLEEP_SECONDS,
+    sleep: float | None = None,
+    with_statements: bool = False,
 ) -> dict[str, int]:
-    last_cal = db.last_calendar_date()
+    resolved_sleep = request_sleep_seconds() if sleep is None else sleep
+    last_cal = db.current_trade_date()
     try:
         st_codes = fetch_st_codes()
     except Exception as exc:
         logger.warning("ST 列表拉取失败：%s", exc)
         st_codes = set()
-    suspend_map = fetch_suspend_map(last_cal)
+    suspend_map = fetch_suspend_map(last_cal) if last_cal else {}
+    batch_financial = len(codes) >= BATCH_MIN_CODES
+    if batch_financial:
+        try:
+            fin = sync_financial_summaries_batch(db, codes)
+            logger.info(
+                "批量财报入库 %s 只 / %s 行",
+                fin.get("financial_stocks", 0),
+                fin.get("financial_rows", 0),
+            )
+        except Exception as exc:
+            logger.warning("批量财报入库失败：%s", exc)
     try:
-        profiles = load_profiles(codes, sleep=sleep, st_codes=st_codes)
+        profiles = load_profiles(codes, sleep=resolved_sleep, st_codes=st_codes)
     except Exception as exc:
         logger.warning("AKShare 资料批量拉取失败：%s", exc)
         profiles = {}
@@ -94,13 +114,30 @@ def sync_stock_info(
             )
             if not payload:
                 raise RuntimeError("AKShare 未返回可用资料")
+            if not batch_financial:
+                try:
+                    reports = fetch_financial_reports(code)
+                    if reports:
+                        db.upsert_financial_reports(code, reports)
+                except Exception as exc:
+                    logger.warning("财报入库失败 %s: %s", code, exc)
             ok += 1
             if i == 1 or i % 20 == 0 or i == len(codes):
                 logger.info("个股资料 %s/%s  %s %s", i, len(codes), code, name)
         except Exception as exc:
             error += 1
             logger.warning("个股资料失败 %s: %s", code, exc)
-    return {"info_ok": ok, "info_error": error, "info_total": len(codes)}
+    result: dict[str, int] = {
+        "info_ok": ok,
+        "info_error": error,
+        "info_total": len(codes),
+    }
+    if with_statements:
+        try:
+            result.update(sync_financial_statements(db, codes))
+        except Exception as exc:
+            logger.warning("报表明细批量入库失败：%s", exc)
+    return result
 
 
 def stock_snapshot(
@@ -108,12 +145,13 @@ def stock_snapshot(
     code: str,
     *,
     pool_id: str = DEFAULT_POOL_ID,
-    adjust: str = DEFAULT_ADJUST,
+    adjust: str | None = None,
 ) -> dict:
+    resolved_adjust = default_adjust() if adjust is None else adjust
     profile = db.get_stock(code)
     membership = db.pool_membership(pool_id, code)
-    summary = db.bar_summary(code, adjust=adjust)
-    latest = db.latest_bar(code, adjust=adjust)
+    summary = db.bar_summary(code, adjust=resolved_adjust)
+    latest = db.latest_bar(code, adjust=resolved_adjust)
     plan_kind = None
     last_cal = summary.get("calendar_as_of")
     last = summary.get("last")
@@ -235,18 +273,27 @@ def sync_stock(
     pool_id: str = DEFAULT_POOL_ID,
     do_info: bool = True,
     do_quotes: bool = True,
-    sleep: float = REQUEST_SLEEP_SECONDS,
+    sleep: float | None = None,
+    with_statements: bool = False,
 ) -> dict:
+    resolved_sleep = request_sleep_seconds() if sleep is None else sleep
     result: dict = {"codes": len(codes), "pool": pool_id}
     if do_info:
-        result.update(sync_stock_info(db, codes, sleep=sleep))
+        result.update(
+            sync_stock_info(
+                db,
+                codes,
+                sleep=resolved_sleep,
+                with_statements=with_statements,
+            )
+        )
     if do_quotes:
         result.update(
             sync_quotes(
                 db,
                 pool_id=pool_id,
                 codes=codes,
-                sleep=sleep,
+                sleep=resolved_sleep,
             )
         )
     return result

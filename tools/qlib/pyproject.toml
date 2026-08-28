@@ -19,3 +19,8 @@ packages = ["src/astock_qlib"]
 
 [tool.uv.sources]
 astock-core = { path = "../../packages/core", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

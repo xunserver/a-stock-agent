@@ -22,13 +22,14 @@ def _print_json(payload: Any) -> None:
 def _format_status(data: dict[str, Any]) -> str:
     pool = data.get("pool", "default")
     active = data.get("pool_active", 0)
+    trade_date = data.get("trade_date") or "—"
     return "\n".join(
         [
             f"池 {pool}",
+            f"当前交易日 {trade_date}",
             f"在池 {active}  已移除 {data.get('pool_removed', 0)}",
             (
-                f"行情  需拉全历史 {data.get('need_full', 0)}  "
-                f"需补缺口 {data.get('need_fill', 0)}  "
+                f"行情  需同步 {data.get('need_sync', (data.get('need_full') or 0) + (data.get('need_fill') or 0))}  "
                 f"已齐 {data.get('already_current', 0)}"
             ),
             f"资料  已同步行业 {data.get('profile_filled', 0)} / {active}",
@@ -54,7 +55,7 @@ def _common_args() -> argparse.ArgumentParser:
 def main() -> None:
     common = _common_args()
     parser = argparse.ArgumentParser(
-        description="管控面 CLI：把命令提交给 core 常驻进程。core 未运行时会直接报错。",
+        description="My Trading CLI：把命令提交给 core 常驻进程。core 未运行时会直接报错。",
         parents=[common],
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -124,7 +125,7 @@ def main() -> None:
     srm = stock_sub.add_parser("remove", help="从系统移除（在池则拒绝，不删日线）", parents=[common])
     srm.add_argument("--codes", required=True)
 
-    analyze = sub.add_parser("analyze", help="多智能体分析", parents=[common])
+    analyze = sub.add_parser("analyze", help="AI 分析", parents=[common])
     analyze_sub = analyze.add_subparsers(dest="analyze_cmd", required=True)
     arun = analyze_sub.add_parser(
         "run",

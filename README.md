@@ -71,6 +71,34 @@ uv --directory apps/control-plane/cli run python -m astock_ctl jobs
 
 工具自己的 CLI 仍可直接跑，给 debug 用：`uv --directory tools/ingest run python -m astock …`
 
+### 桌面端发布（Windows）
+
+当前只打 **Windows Electron 壳**（NSIS 安装包）。安装后仍需本机仓库 + `uv` 才能拉起 Python core；自动更新也只更新这个壳。
+
+| 动作 | 结果 |
+|------|------|
+| `push` 到 `main` | Actions 打安装包，挂在 workflow artifact `desktop-windows` |
+| 推送 tag `vX.Y.Z` | 打同版本安装包并发布到 GitHub Releases（含 `latest.yml`，供自动更新） |
+
+发版步骤：
+
+```bash
+# 1. 改 apps/desktop/package.json 的 version，例如 0.0.2
+# 2. commit 并 push 到 main（可选：从 Actions 下载 artifact 试装）
+# 3. 打与 version 一致的 tag 并推送
+git tag v0.0.2
+git push origin v0.0.2
+```
+
+本地打包（需在 Windows，或只验证配置）：
+
+```bash
+pnpm dist:desktop          # 不发布
+# pnpm --filter desktop dist:publish   # 发布到 GitHub Releases，需 GH_TOKEN
+```
+
+**自动更新**：安装包启动后会检查 GitHub Releases。仓库已公开，客户端无需额外 token。开发模式（`pnpm dev`）不检查更新。未签名安装包可能被 SmartScreen 拦截，选「仍要运行」即可。
+
 ## 股票管理
 
 所有命令都在 `tools/ingest` 环境里跑。`--pool` 不写就是 `default`，可放在子命令前后：

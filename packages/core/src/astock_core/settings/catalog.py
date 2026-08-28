@@ -4,10 +4,24 @@ from typing import Any
 
 from astock_core.paths import ANALYZE_DIR, DATA_DIR, DB_PATH, DEFAULT_ADJUST, DEFAULT_POOL_ID, QLIB_DIR, system_db_path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-INGEST_QUOTES_KEYS = ("pool", "adjust", "sleep")
+INGEST_QUOTES_KEYS = (
+    "pool",
+    "adjust",
+    "sleep",
+    "history_start",
+    "periods",
+    "retries",
+    "default_years",
+)
 INGEST_SCHEDULE_KEYS = ("sync_enabled", "sync_time", "timezone")
+INGEST_INDEXES_KEYS = (
+    "hs300_symbol",
+    "hs300_index_code",
+    "major_indexes",
+    "aliases",
+)
 ANALYZE_LLM_KEYS = (
     "llm_provider",
     "deep_think_llm",
@@ -22,6 +36,24 @@ ANALYZE_GRAPH_KEYS = (
     "max_risk_discuss_rounds",
 )
 ANALYZE_RUNTIME_KEYS = ("temperature", "checkpoint_enabled")
+
+DEFAULT_MAJOR_INDEXES = [
+    {"code": "sh000001", "name": "上证指数"},
+    {"code": "sz399001", "name": "深证成指"},
+    {"code": "sz399006", "name": "创业板指"},
+    {"code": "sh000300", "name": "沪深300"},
+    {"code": "sh000905", "name": "中证500"},
+    {"code": "sh000852", "name": "中证1000"},
+    {"code": "sh000688", "name": "科创50"},
+]
+DEFAULT_INDEX_ALIASES = {
+    "hs300": "000300",
+    "zz500": "000905",
+    "zz1000": "000852",
+    "sz50": "000016",
+    "kc50": "000688",
+    "cyb": "399006",
+}
 
 
 def live_paths() -> dict[str, str]:
@@ -79,24 +111,36 @@ def settings_catalog() -> list[dict[str, Any]]:
         _module(
             module_id="ingest",
             title="行情采集",
-            description="股票池默认值、复权和盘后同步。quotes.sync 不指定参数时用这里的行情段。",
+            description="股票池默认值、复权、历史起点、指数名录和盘后同步。采集任务一律读这里，不写死在代码里。",
             sort_order=10,
             sections=[
                 _section(
                     section_id="quotes",
                     title="行情",
-                    description="默认股票池、复权和两次拉行情之间的间隔。",
+                    description="默认股票池、复权、历史起点、K 线周期和请求节奏。",
                     sort_order=10,
                     defaults={
                         "pool": DEFAULT_POOL_ID,
                         "adjust": DEFAULT_ADJUST,
                         "sleep": 0.35,
+                        "history_start": "20000101",
+                        "periods": ["daily", "weekly", "monthly"],
+                        "retries": 3,
+                        "default_years": 5,
                     },
                     schema={
                         "$schema": "https://json-schema.org/draft/2020-12/schema",
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["pool", "adjust", "sleep"],
+                        "required": [
+                            "pool",
+                            "adjust",
+                            "sleep",
+                            "history_start",
+                            "periods",
+                            "retries",
+                            "default_years",
+                        ],
                         "properties": {
                             "pool": {
                                 "type": "string",
@@ -122,6 +166,114 @@ def settings_catalog() -> list[dict[str, Any]]:
                                 "description": "两次拉行情之间暂停的秒数。",
                                 "minimum": 0,
                             },
+                            "history_start": {
+                                "type": "string",
+                                "title": "历史起点",
+                                "description": "新票拉全历史时的起始日，格式 YYYYMMDD。",
+                                "pattern": "^\\d{8}$",
+                            },
+                            "periods": {
+                                "type": "array",
+                                "title": "K 线周期",
+                                "minItems": 1,
+                                "uniqueItems": True,
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["daily", "weekly", "monthly"],
+                                },
+                                "x-widget": "switch-set",
+                                "x-options": [
+                                    {"value": "daily", "label": "日线"},
+                                    {"value": "weekly", "label": "周线"},
+                                    {"value": "monthly", "label": "月线"},
+                                ],
+                            },
+                            "retries": {
+                                "type": "integer",
+                                "title": "请求重试",
+                                "description": "上游失败时的重试次数。",
+                                "minimum": 1,
+                                "maximum": 10,
+                            },
+                            "default_years": {
+                                "type": "integer",
+                                "title": "年限回填",
+                                "description": "按年回填时从今天往前推的年数；0 表示用历史起点。",
+                                "minimum": 0,
+                                "maximum": 50,
+                            },
+                        },
+                    },
+                ),
+                _section(
+                    section_id="indexes",
+                    title="指数",
+                    description="主要指数列表、别名，以及沪深300相关代码。",
+                    sort_order=15,
+                    defaults={
+                        "hs300_symbol": "000300",
+                        "hs300_index_code": "sh000300",
+                        "major_indexes": list(DEFAULT_MAJOR_INDEXES),
+                        "aliases": dict(DEFAULT_INDEX_ALIASES),
+                    },
+                    schema={
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "hs300_symbol",
+                            "hs300_index_code",
+                            "major_indexes",
+                            "aliases",
+                        ],
+                        "properties": {
+                            "hs300_symbol": {
+                                "type": "string",
+                                "title": "沪深300 成分代码",
+                                "description": "中证/新浪拉成分股用的指数代码。",
+                                "minLength": 1,
+                                "pattern": "^\\d{6}$",
+                            },
+                            "hs300_index_code": {
+                                "type": "string",
+                                "title": "沪深300 行情代码",
+                                "description": "拉指数日线用的带市场前缀代码。",
+                                "minLength": 1,
+                                "pattern": "^[a-z]{2}\\d{6}$",
+                            },
+                            "major_indexes": {
+                                "type": "array",
+                                "title": "主要指数",
+                                "description": "同步指数行情时的列表，JSON 数组。",
+                                "minItems": 1,
+                                "x-widget": "json",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["code", "name"],
+                                    "properties": {
+                                        "code": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "pattern": "^[a-z]{2}\\d{6}$",
+                                        },
+                                        "name": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                        },
+                                    },
+                                },
+                            },
+                            "aliases": {
+                                "type": "object",
+                                "title": "指数别名",
+                                "description": "pool/stock add --index 用的别名到六位代码映射，JSON 对象。",
+                                "x-widget": "json",
+                                "additionalProperties": {
+                                    "type": "string",
+                                    "pattern": "^\\d{6}$",
+                                },
+                            },
                         },
                     },
                 ),
@@ -132,7 +284,7 @@ def settings_catalog() -> list[dict[str, Any]]:
                     sort_order=20,
                     defaults={
                         "sync_enabled": False,
-                        "sync_time": "16:10",
+                        "sync_time": "16:30",
                         "timezone": "Asia/Shanghai",
                     },
                     schema={
@@ -144,7 +296,7 @@ def settings_catalog() -> list[dict[str, Any]]:
                             "sync_enabled": {
                                 "type": "boolean",
                                 "title": "盘后自动同步",
-                                "description": "每个交易日收盘后按设定时刻提交 quotes.sync。",
+                                "description": "每个交易日收盘后按设定时刻提交 quotes.sync（建议 ≥16:30，等日 K 落库）。",
                                 "x-widget": "switch",
                             },
                             "sync_time": {

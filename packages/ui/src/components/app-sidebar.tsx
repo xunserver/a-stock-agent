@@ -24,8 +24,8 @@ export function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton render={<Link to="/stocks" />} tooltip="管控面">
-              <span className="font-medium">管控面</span>
+            <SidebarMenuButton render={<Link to="/stocks" />} tooltip="My Trading">
+              <span className="font-medium">My Trading</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

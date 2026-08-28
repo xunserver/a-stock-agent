@@ -63,7 +63,7 @@ export async function loadError(
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <title>管控面</title>
+    <title>My Trading</title>
     <style>
       body { font-family: sans-serif; padding: 48px; max-width: 40rem; color: #111; }
       h1 { font-size: 1.5rem; }
@@ -71,7 +71,7 @@ export async function loadError(
     </style>
   </head>
   <body>
-    <h1>无法启动管控面</h1>
+    <h1>无法启动 My Trading</h1>
     <p>${escapeHtml(message)}</p>
   </body>
 </html>`

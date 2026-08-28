@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { Link } from "react-router"
-import { CircleAlertIcon } from "lucide-react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -15,10 +13,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Spinner } from "@/components/ui/spinner"
 import { TickerLink } from "@/components/ticker-link"
 import { useJobWatch } from "@/hooks/use-job-watch"
-import { cancelJob, type Job } from "@/lib/api"
+import { type Job } from "@/lib/api"
 import {
   analyzeJobHref,
   describeJobParams,
@@ -30,46 +27,46 @@ import {
   jobStatusVariant,
   pickJobCodes,
 } from "@/lib/jobs"
+import { notify } from "@/lib/notify"
 
 export function JobDetailSheet({
   jobId,
   onOpenChange,
   onDone,
+  onRequestCancel,
 }: {
   jobId: string | null
   onOpenChange: (open: boolean) => void
   onDone: (job: Job) => void
+  onRequestCancel: (jobId: string) => void
 }) {
   const { job, logs, error, loading } = useJobWatch(jobId, onDone)
-  const [cancelling, setCancelling] = useState(false)
-  const [cancelError, setCancelError] = useState<string | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: "end" })
   }, [logs])
-  useEffect(() => {
-    setCancelling(false)
-    setCancelError(null)
-  }, [jobId])
   const href = job ? analyzeJobHref(job) : null
   const codes = job ? pickJobCodes(job) : []
   const params = job ? describeJobParams(job.command) : []
   const failed = job?.status === "failed" ? job.error : null
   const canCancel = job !== null && isOpenJob(job.status)
+  const lastNotifiedRef = useRef<string | null>(null)
 
-  async function onCancel() {
-    if (!job || !canCancel) return
-    setCancelling(true)
-    setCancelError(null)
-    try {
-      const next = await cancelJob(job.id)
-      onDone(next)
-    } catch (reason: unknown) {
-      setCancelError(reason instanceof Error ? reason.message : "取消任务失败")
-    } finally {
-      setCancelling(false)
+  useEffect(() => {
+    const message = failed ?? error
+    if (!message) {
+      return
     }
-  }
+    const key = `${jobId ?? ""}:${message}`
+    if (lastNotifiedRef.current === key) {
+      return
+    }
+    lastNotifiedRef.current = key
+    notify.error(failed ? "任务失败" : "无法读取任务", {
+      description: message,
+      coreHint: false,
+    })
+  }, [error, failed, jobId])
 
   return (
     <Sheet open={jobId !== null} onOpenChange={onOpenChange}>
@@ -91,6 +88,18 @@ export function JobDetailSheet({
               <Badge variant="outline">
                 超时上限 {formatTimeoutSeconds(job.timeout_seconds)}
               </Badge>
+              <Badge variant="outline">
+                {job.trigger === "scheduled"
+                  ? "定时触发"
+                  : job.trigger === "automation_manual"
+                    ? "自动任务立即运行"
+                    : "手动触发"}
+              </Badge>
+              {job.scheduled_for ? (
+                <Badge variant="outline">
+                  计划 {formatJobDateTime(job.scheduled_for)}
+                </Badge>
+              ) : null}
               {codes.map((code) => (
                 <TickerLink key={code} code={code} />
               ))}
@@ -118,21 +127,6 @@ export function JobDetailSheet({
               </dl>
             </div>
           ) : null}
-          {error || failed || cancelError ? (
-            <Alert variant="destructive">
-              <CircleAlertIcon />
-              <AlertTitle>
-                {failed
-                  ? "失败原因"
-                  : cancelError
-                    ? "无法取消"
-                    : "无法读取任务"}
-              </AlertTitle>
-              <AlertDescription>
-                {failed ?? cancelError ?? error}
-              </AlertDescription>
-            </Alert>
-          ) : null}
           <ScrollArea className="h-[min(24rem,60vh)] rounded-lg border">
             <pre className="p-3 font-mono text-sm whitespace-pre-wrap">
               {logs.length > 0 ? logs.join("\n") : "还没有日志。"}
@@ -143,12 +137,7 @@ export function JobDetailSheet({
         {href || canCancel ? (
           <SheetFooter>
             {canCancel ? (
-              <Button
-                variant="outline"
-                disabled={cancelling}
-                onClick={() => void onCancel()}
-              >
-                {cancelling ? <Spinner data-icon="inline-start" /> : null}
+              <Button variant="outline" onClick={() => onRequestCancel(job.id)}>
                 取消任务
               </Button>
             ) : null}

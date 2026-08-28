@@ -52,6 +52,13 @@ class PoolRunner:
                 result["pool"] = pool_id
                 result["active"] = len(db.active_pool_codes(pool_id))
                 return result
+        if typ == "pool.reorder":
+            codes = [str(code) for code in command.get("codes") or []]
+            on_log(f"调整顺序 {len(codes)} 只")
+            with MarketDB(self._db_path) as db:
+                result = db.reorder_pool_members(pool_id, codes)
+                result["pool"] = pool_id
+                return result
         if typ == "pool.add":
             if command.get("index"):
                 return self._ingest.run(

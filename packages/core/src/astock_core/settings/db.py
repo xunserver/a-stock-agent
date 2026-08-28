@@ -298,6 +298,38 @@ class SystemDB:
                             now,
                         ),
                     )
+                else:
+                    current = json.loads(existing["values_json"] or "{}")
+                    if not isinstance(current, dict):
+                        current = {}
+                    defaults = section["defaults"]
+                    properties = section["schema"].get("properties") or {}
+                    allowed = set(properties)
+                    merged = dict(current)
+                    changed = False
+                    for key, value in defaults.items():
+                        if key not in merged:
+                            merged[key] = value
+                            changed = True
+                    if allowed:
+                        for key in list(merged):
+                            if key not in allowed:
+                                del merged[key]
+                                changed = True
+                    if changed:
+                        self.conn.execute(
+                            """
+                            UPDATE setting_values
+                            SET values_json = ?, updated_at = ?
+                            WHERE module_id = ? AND section_id = ?
+                            """,
+                            (
+                                json.dumps(merged, ensure_ascii=False),
+                                now,
+                                module["id"],
+                                section["id"],
+                            ),
+                        )
             stale_sections = [
                 (row["module_id"], row["id"])
                 for row in self.conn.execute("SELECT module_id, id FROM setting_sections")

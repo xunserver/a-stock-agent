@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from astock.config import INDEX_ALIASES
+from astock.config import hs300_symbol, index_aliases
 from astock.ingest import _call, fetch_hs300_members
 from astock_core.db import MarketDB
 from astock_core.paths import DEFAULT_POOL_ID
@@ -11,18 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_index_symbol(index: str) -> str:
+    aliases = index_aliases()
     key = index.strip().lower()
-    if key in INDEX_ALIASES:
-        return INDEX_ALIASES[key]
+    if key in aliases:
+        return aliases[key]
     code = index.strip()
     if code.isdigit():
         return code.zfill(6)
-    raise ValueError(f"未知指数：{index}。可用别名：{', '.join(INDEX_ALIASES)}")
+    raise ValueError(f"未知指数：{index}。可用别名：{', '.join(aliases)}")
 
 
 def fetch_index_members(index: str) -> tuple[str, list[tuple[str, str]]]:
     symbol = resolve_index_symbol(index)
-    if symbol == "000300":
+    if symbol == hs300_symbol():
         return symbol, fetch_hs300_members()
 
     import akshare as ak

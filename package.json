@@ -7,9 +7,10 @@
     "dev:web": "pnpm --filter ui dev",
     "dev:desktop": "pnpm --filter desktop dev",
     "build:web": "pnpm --filter ui build",
+    "dist:desktop": "pnpm --filter desktop dist",
     "typecheck": "pnpm -r typecheck"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron", "esbuild"]
+    "onlyBuiltDependencies": ["electron", "esbuild", "electron-winstaller"]
   }
 }

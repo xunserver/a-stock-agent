@@ -1,7 +1,7 @@
 import { Navigate, Outlet, Route, Routes } from "react-router"
-import { SparklesIcon } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { AppToaster } from "@/components/app-toaster"
 import { JobProvider } from "@/components/job-provider"
 import { SiteHeader } from "@/components/site-header"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -12,9 +12,10 @@ import {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AnalyzePage } from "@/pages/analyze-page"
+import { AutomationDetailPage, AutomationsPage } from "@/pages/automations-page"
 import { JobsPage } from "@/pages/jobs-page"
-import { PlaceholderPage } from "@/pages/placeholder-page"
 import { PoolPage } from "@/pages/pool-page"
+import { QlibPage } from "@/pages/qlib-page"
 import { SettingsPage } from "@/pages/settings-page"
 import { StocksPage } from "@/pages/stocks-page"
 
@@ -38,6 +39,7 @@ export function App() {
   return (
     <ThemeProvider>
       <TooltipProvider>
+        <AppToaster />
         <StockDetailProvider>
           <JobProvider>
             <Routes>
@@ -46,15 +48,11 @@ export function App() {
                 <Route path="/pools" element={<PoolPage />} />
                 <Route path="/stocks" element={<StocksPage />} />
                 <Route path="/analyze" element={<AnalyzePage />} />
+                <Route path="/qlib" element={<QlibPage />} />
+                <Route path="/automations" element={<AutomationsPage />} />
                 <Route
-                  path="/qlib"
-                  element={
-                    <PlaceholderPage
-                      title="Qlib 候选"
-                      description="从预测里取出的候选列表会放在这里。core 还没有接 qlib 命令。"
-                      icon={SparklesIcon}
-                    />
-                  }
+                  path="/automations/:automationId"
+                  element={<AutomationDetailPage />}
                 />
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

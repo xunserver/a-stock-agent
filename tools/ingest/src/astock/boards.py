@@ -5,7 +5,7 @@ import time
 
 import pandas as pd
 
-from astock.config import REQUEST_SLEEP_SECONDS
+from astock.config import request_sleep_seconds
 from astock.ingest import _call
 from astock_core.db import MarketDB
 
@@ -60,10 +60,11 @@ def sync_boards(
     db: MarketDB,
     *,
     kinds: tuple[str, ...] = BOARD_KINDS,
-    sleep: float = REQUEST_SLEEP_SECONDS,
+    sleep: float | None = None,
     limit: int | None = None,
 ) -> dict:
     """同步东财行业/概念板块；成员只保留系统 stocks 内代码。"""
+    resolved_sleep = request_sleep_seconds() if sleep is None else sleep
     selected = tuple(kind for kind in kinds if kind in BOARD_KINDS)
     if not selected:
         raise ValueError("kinds 需要包含 industry 或 concept")
@@ -127,6 +128,6 @@ def sync_boards(
             except Exception as exc:
                 stats["error"] += 1
                 logger.warning("%s 板块 %s 成分失败: %s", kind, board_id, exc)
-            time.sleep(sleep)
+            time.sleep(resolved_sleep)
 
     return stats

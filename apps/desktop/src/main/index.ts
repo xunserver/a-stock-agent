@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from "electron"
 
 import { startCore, stopCore } from "./core-process"
+import { initAutoUpdater } from "./updater"
 import { createMainWindow, loadApp, loadError } from "./window"
 
 let quitting = false
@@ -18,6 +19,9 @@ async function boot(): Promise<void> {
 
 void app.whenReady().then(() => {
   void boot()
+  if (app.isPackaged) {
+    initAutoUpdater()
+  }
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       void boot()

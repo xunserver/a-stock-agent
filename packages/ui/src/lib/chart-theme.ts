@@ -237,7 +237,7 @@ export function volumeSeriesOptions(palette: ChartPalette) {
 export function overlaySeriesOptions(color: string, lineWidth = 2, visible = true) {
   const width = Math.min(4, Math.max(1, Math.round(lineWidth))) as 1 | 2 | 3 | 4
   return {
-    color: toCanvasColor(color),
+    color: withAlpha(toCanvasColor(color), 0.7),
     lineWidth: width,
     visible,
     priceLineVisible: false,

@@ -6,6 +6,7 @@ from astock_core.settings.catalog import (
     ANALYZE_GRAPH_KEYS,
     ANALYZE_LLM_KEYS,
     ANALYZE_RUNTIME_KEYS,
+    INGEST_INDEXES_KEYS,
     INGEST_QUOTES_KEYS,
     INGEST_SCHEDULE_KEYS,
     live_paths,
@@ -70,13 +71,17 @@ def get_section_view(module_id: str, section_id: str) -> dict[str, Any]:
     }
 
 
-def update_section(module_id: str, section_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+def update_section(
+    module_id: str, section_id: str, patch: dict[str, Any]
+) -> dict[str, Any]:
     with SystemDB() as db:
         db.put_values(module_id, section_id, patch)
     return get_section_view(module_id, section_id)
 
 
-def preview_section(module_id: str, section_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+def preview_section(
+    module_id: str, section_id: str, patch: dict[str, Any]
+) -> dict[str, Any]:
     with SystemDB() as db:
         current = db.get_section(module_id, section_id)
         if current["read_only"]:
@@ -90,9 +95,12 @@ def load_settings() -> dict[str, Any]:
     with SystemDB() as db:
         quotes = db.get_values("ingest", "quotes")
         schedule = db.get_values("ingest", "schedule")
+        indexes = db.get_values("ingest", "indexes")
         llm = db.get_values("analyze", "llm")
         graph = db.get_values("analyze", "graph")
         runtime = db.get_values("analyze", "runtime")
+        qlib_data = db.get_values("qlib", "data")
+        qlib_workflow = db.get_values("qlib", "workflow")
     return {
         "pool": quotes["pool"],
         "adjust": quotes["adjust"],
@@ -101,8 +109,22 @@ def load_settings() -> dict[str, Any]:
             "sync_time": schedule["sync_time"],
             "timezone": schedule["timezone"],
             "sleep": quotes["sleep"],
+            "history_start": quotes["history_start"],
+            "periods": list(quotes["periods"]),
+            "retries": quotes["retries"],
+            "default_years": quotes["default_years"],
+        },
+        "indexes": {
+            "hs300_symbol": indexes["hs300_symbol"],
+            "hs300_index_code": indexes["hs300_index_code"],
+            "major_indexes": list(indexes["major_indexes"]),
+            "aliases": dict(indexes["aliases"]),
         },
         "analyze": {**llm, **graph, **runtime},
+        "qlib": {
+            "data": qlib_data,
+            "workflow": qlib_workflow,
+        },
     }
 
 
@@ -131,7 +153,9 @@ def preview_update(patch: dict[str, Any]) -> dict[str, Any]:
             current = db.get_section(module_id, section_id)
             from astock_core.settings.validate import merge_section_patch
 
-            merged = merge_section_patch(current["schema"], current["values"], section_patch)
+            merged = merge_section_patch(
+                current["schema"], current["values"], section_patch
+            )
             _apply_section_to_assembled(assembled, module_id, section_id, merged)
     return assembled
 
@@ -171,11 +195,23 @@ def _apply_section_to_assembled(
         assembled["pool"] = values["pool"]
         assembled["adjust"] = values["adjust"]
         assembled["quotes"]["sleep"] = values["sleep"]
+        assembled["quotes"]["history_start"] = values["history_start"]
+        assembled["quotes"]["periods"] = list(values["periods"])
+        assembled["quotes"]["retries"] = values["retries"]
+        assembled["quotes"]["default_years"] = values["default_years"]
         return
     if module_id == "ingest" and section_id == "schedule":
         assembled["quotes"]["sync_enabled"] = values["sync_enabled"]
         assembled["quotes"]["sync_time"] = values["sync_time"]
         assembled["quotes"]["timezone"] = values["timezone"]
+        return
+    if module_id == "ingest" and section_id == "indexes":
+        assembled["indexes"] = {
+            "hs300_symbol": values["hs300_symbol"],
+            "hs300_index_code": values["hs300_index_code"],
+            "major_indexes": list(values["major_indexes"]),
+            "aliases": dict(values["aliases"]),
+        }
         return
     if module_id == "analyze":
         assembled["analyze"].update(values)
@@ -204,6 +240,16 @@ def _legacy_patches(patch: dict[str, Any]) -> list[tuple[str, str, dict[str, Any
     if schedule:
         patches.append(("ingest", "schedule", schedule))
 
+    indexes_in = patch.get("indexes")
+    if isinstance(indexes_in, dict):
+        indexes = {
+            key: indexes_in[key] for key in INGEST_INDEXES_KEYS if key in indexes_in
+        }
+        if indexes:
+            patches.append(("ingest", "indexes", indexes))
+    elif indexes_in is not None:
+        raise ValueError("indexes 必须是对象")
+
     analyze = patch.get("analyze")
     if analyze is None:
         return patches
@@ -212,7 +258,12 @@ def _legacy_patches(patch: dict[str, Any]) -> list[tuple[str, str, dict[str, Any
     llm = {key: analyze[key] for key in ANALYZE_LLM_KEYS if key in analyze}
     graph = {key: analyze[key] for key in ANALYZE_GRAPH_KEYS if key in analyze}
     runtime = {key: analyze[key] for key in ANALYZE_RUNTIME_KEYS if key in analyze}
-    unknown = set(analyze) - set(ANALYZE_LLM_KEYS) - set(ANALYZE_GRAPH_KEYS) - set(ANALYZE_RUNTIME_KEYS)
+    unknown = (
+        set(analyze)
+        - set(ANALYZE_LLM_KEYS)
+        - set(ANALYZE_GRAPH_KEYS)
+        - set(ANALYZE_RUNTIME_KEYS)
+    )
     if unknown:
         raise ValueError(f"未知设置项: {', '.join(sorted(unknown))}")
     if llm:

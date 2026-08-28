@@ -33,6 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   querySettingsCatalog,
@@ -118,7 +119,11 @@ function SchemaField({
   const description = spec.description
   const widget = spec["x-widget"]
   const readOnly = Boolean(spec.readOnly || disabled)
-  const types = Array.isArray(spec.type) ? spec.type : spec.type ? [spec.type] : []
+  const types = Array.isArray(spec.type)
+    ? spec.type
+    : spec.type
+      ? [spec.type]
+      : []
   const opts = optionsFor(spec)
 
   if (spec["x-secret"]) {
@@ -127,7 +132,9 @@ function SchemaField({
       <Field orientation="horizontal">
         <FieldContent>
           <FieldLabel htmlFor={id}>{title}</FieldLabel>
-          {description ? <FieldDescription>{description}</FieldDescription> : null}
+          {description ? (
+            <FieldDescription>{description}</FieldDescription>
+          ) : null}
         </FieldContent>
         <Input
           id={id}
@@ -144,12 +151,17 @@ function SchemaField({
     )
   }
 
-  if (widget === "switch" || (types.includes("boolean") && widget !== "toggle-group")) {
+  if (
+    widget === "switch" ||
+    (types.includes("boolean") && widget !== "toggle-group")
+  ) {
     return (
       <Field orientation="horizontal">
         <FieldContent>
           <FieldLabel htmlFor={id}>{title}</FieldLabel>
-          {description ? <FieldDescription>{description}</FieldDescription> : null}
+          {description ? (
+            <FieldDescription>{description}</FieldDescription>
+          ) : null}
         </FieldContent>
         <Switch
           id={id}
@@ -171,7 +183,9 @@ function SchemaField({
         {opts.map((item) => (
           <Field orientation="horizontal" key={item.value}>
             <FieldContent>
-              <FieldLabel htmlFor={`${id}-${item.value}`}>{item.label}</FieldLabel>
+              <FieldLabel htmlFor={`${id}-${item.value}`}>
+                {item.label}
+              </FieldLabel>
               {item.description ? (
                 <FieldDescription>{item.description}</FieldDescription>
               ) : null}
@@ -195,7 +209,11 @@ function SchemaField({
     )
   }
 
-  if ((widget === "toggle-group" || (opts.length >= 2 && opts.length <= 4 && !widget)) && opts.length) {
+  if (
+    (widget === "toggle-group" ||
+      (opts.length >= 2 && opts.length <= 4 && !widget)) &&
+    opts.length
+  ) {
     return (
       <Field orientation="horizontal">
         <FieldTitle id={id}>{title}</FieldTitle>
@@ -214,8 +232,12 @@ function SchemaField({
         >
           {opts.map((item) => (
             <ToggleGroupItem
-              key={item.value === "" ? spec["x-emptyToken"] || "empty" : item.value}
-              value={item.value === "" ? spec["x-emptyToken"] || "empty" : item.value}
+              key={
+                item.value === "" ? spec["x-emptyToken"] || "empty" : item.value
+              }
+              value={
+                item.value === "" ? spec["x-emptyToken"] || "empty" : item.value
+              }
             >
               {item.label}
             </ToggleGroupItem>
@@ -274,14 +296,58 @@ function SchemaField({
     )
   }
 
-  if (types.includes("integer") || types.includes("number") || types.includes("null")) {
+  if (
+    widget === "json" ||
+    types.includes("object") ||
+    (types.includes("array") && !opts.length)
+  ) {
+    const raw = values[name]
+    const text =
+      typeof raw === "string"
+        ? raw
+        : JSON.stringify(raw ?? (types.includes("array") ? [] : {}), null, 2)
+    return (
+      <Field>
+        <FieldContent>
+          <FieldLabel htmlFor={id}>{title}</FieldLabel>
+          {description ? (
+            <FieldDescription>{description}</FieldDescription>
+          ) : null}
+        </FieldContent>
+        <Textarea
+          id={id}
+          name={name}
+          value={text}
+          disabled={readOnly}
+          readOnly={readOnly}
+          className="min-h-36 font-mono text-sm"
+          onChange={(event) => {
+            const next = event.target.value
+            try {
+              onChange(name, JSON.parse(next))
+            } catch {
+              onChange(name, next)
+            }
+          }}
+        />
+      </Field>
+    )
+  }
+
+  if (
+    types.includes("integer") ||
+    types.includes("number") ||
+    types.includes("null")
+  ) {
     const raw = values[name]
     const text = raw === null || raw === undefined ? "" : String(raw)
     return (
       <Field orientation="horizontal">
         <FieldContent>
           <FieldLabel htmlFor={id}>{title}</FieldLabel>
-          {description ? <FieldDescription>{description}</FieldDescription> : null}
+          {description ? (
+            <FieldDescription>{description}</FieldDescription>
+          ) : null}
         </FieldContent>
         <Input
           id={id}
@@ -299,7 +365,10 @@ function SchemaField({
               onChange(name, types.includes("null") ? null : next)
               return
             }
-            onChange(name, types.includes("integer") ? Number(next) : Number(next))
+            onChange(
+              name,
+              types.includes("integer") ? Number(next) : Number(next)
+            )
           }}
         />
       </Field>
@@ -310,7 +379,9 @@ function SchemaField({
     <Field orientation="horizontal" data-disabled={readOnly || undefined}>
       <FieldContent>
         <FieldLabel htmlFor={id}>{title}</FieldLabel>
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
+        {description ? (
+          <FieldDescription>{description}</FieldDescription>
+        ) : null}
       </FieldContent>
       <Input
         id={id}
@@ -335,7 +406,10 @@ function sectionFormValues(section: SettingsSection) {
   return values
 }
 
-function patchFromForm(section: SettingsSection, values: Record<string, unknown>) {
+function patchFromForm(
+  section: SettingsSection,
+  values: Record<string, unknown>
+) {
   const patch: Record<string, unknown> = {}
   for (const [name, spec] of propertyEntries(section.schema)) {
     if (spec.readOnly) {
@@ -351,7 +425,21 @@ function patchFromForm(section: SettingsSection, values: Record<string, unknown>
     if (!isVisible(spec, values)) {
       continue
     }
-    patch[name] = values[name]
+    const types = Array.isArray(spec.type)
+      ? spec.type
+      : spec.type
+        ? [spec.type]
+        : []
+    const value = values[name]
+    if (
+      (spec["x-widget"] === "json" ||
+        types.includes("object") ||
+        types.includes("array")) &&
+      typeof value === "string"
+    ) {
+      throw new Error(`${spec.title ?? name} 需要合法 JSON`)
+    }
+    patch[name] = value
   }
   return patch
 }
@@ -447,7 +535,7 @@ function SectionCard({
           <CardFooter>
             <Button type="submit" disabled={saving}>
               {saving ? <Spinner data-icon="inline-start" /> : null}
-                    保存 {section.title}
+              保存 {section.title}
             </Button>
           </CardFooter>
         )}
@@ -483,7 +571,20 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const defaultModule = catalog?.modules[0]?.id ?? "ingest"
 
-  const modules = useMemo(() => catalog?.modules ?? [], [catalog])
+  const modules = useMemo(
+    () =>
+      (catalog?.modules ?? []).map((module) =>
+        module.id === "ingest"
+          ? {
+              ...module,
+              sections: module.sections.filter(
+                (section) => section.id !== "schedule"
+              ),
+            }
+          : module
+      ),
+    [catalog]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -515,7 +616,8 @@ export function SettingsPage() {
         <InfoIcon />
         <AlertTitle>设置存在系统库</AlertTitle>
         <AlertDescription>
-          schema 和取值都写在 data/system.db，和行情库 market.db 分开。按模块打开，每个小类单独保存。
+          schema 和取值都写在 data/system.db，和行情库 market.db
+          分开。按模块打开，每个小类单独保存。
         </AlertDescription>
       </Alert>
       {error ? (
@@ -539,7 +641,11 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       ) : catalog ? (
-        <Tabs defaultValue={defaultModule} orientation="vertical" className="items-start">
+        <Tabs
+          defaultValue={defaultModule}
+          orientation="vertical"
+          className="items-start"
+        >
           <TabsList variant="line" className="w-44">
             {modules.map((module) => (
               <TabsTrigger key={module.id} value={module.id}>
@@ -548,11 +654,17 @@ export function SettingsPage() {
             ))}
           </TabsList>
           {modules.map((module) => (
-            <TabsContent key={module.id} value={module.id} className="min-w-0 w-full">
+            <TabsContent
+              key={module.id}
+              value={module.id}
+              className="w-full min-w-0"
+            >
               <div className="flex flex-col gap-4">
                 <div>
                   <h2 className="text-base font-medium">{module.title}</h2>
-                  <p className="text-sm text-muted-foreground">{module.description}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {module.description}
+                  </p>
                 </div>
                 <ModuleSections
                   module={module}

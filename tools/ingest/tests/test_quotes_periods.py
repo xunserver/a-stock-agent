@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from astock.config import HISTORY_START, QUOTE_PERIODS
+from astock.config import history_start, quote_periods
 from astock.quotes import sync_quotes
 from astock_core.db import BAR_TABLES, MarketDB
 from astock_core.paths import DEFAULT_ADJUST
 
 
-def test_history_start_is_2005() -> None:
-    assert HISTORY_START == "20050101"
-    assert QUOTE_PERIODS == ("daily", "weekly", "monthly")
+def test_history_start_from_settings() -> None:
+    assert history_start() == "20000101"
+    assert quote_periods() == ("daily", "weekly", "monthly")
 
 
 def test_weekly_monthly_tables_and_upsert(tmp_path) -> None:
@@ -68,7 +68,7 @@ def test_sync_quotes_runs_all_periods(tmp_path, monkeypatch) -> None:
         result = sync_quotes(db, codes=["000001"], refresh_calendar=True)
 
     assert seen == ["daily", "weekly", "monthly"]
-    assert result["history_start"] == "20050101"
+    assert result["history_start"] == "20000101"
     assert result["daily_rows"] == 1
     assert result["weekly_rows"] == 1
     assert result["monthly_rows"] == 1

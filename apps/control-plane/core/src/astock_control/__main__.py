@@ -8,7 +8,7 @@ from astock_control.settings import DEFAULT_HOST, DEFAULT_PORT
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="管控面 core：接收 Web / CLI 提交的命令并执行。")
+    parser = argparse.ArgumentParser(description="My Trading core：接收 Web / CLI 提交的命令并执行。")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()

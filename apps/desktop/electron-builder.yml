@@ -1,0 +1,25 @@
+appId: com.astock.agent
+productName: A-Stock Agent
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+asar: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+# Public repo: electron-updater reads GitHub Releases without a client token.
+# CI publish still uses secrets.GITHUB_TOKEN. See README「桌面端发布」.
+publish:
+  provider: github
+  owner: xunserver
+  repo: a-stock-agent
+  private: false
+  releaseType: release

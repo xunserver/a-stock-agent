@@ -1,9 +1,11 @@
 export type Status = {
   db: string
   pool: string
-  need_full: number
-  need_fill: number
-  already_current: number
+  trade_date?: string | null
+  need_sync: number
+  need_full?: number
+  need_fill?: number
+  already_current?: number
   profile_filled: number
   pool_active: number
   pool_removed: number
@@ -13,12 +15,17 @@ export type Status = {
   bars_monthly?: number
 }
 
+export type QuotePlan = "full" | "fill" | "current"
+
 export type PoolMember = {
   code: string
   name: string | null
   status: string
   source: string | null
   last_bar: string | null
+  quote_plan?: QuotePlan | null
+  needs_sync?: boolean | null
+  sort_order?: number | null
 }
 
 export type PoolList = {
@@ -40,6 +47,58 @@ export type PoolsList = {
   pools: PoolSummary[]
 }
 
+export type QlibWorkflow = {
+  config: string
+  benchmark: string
+  topk: number
+  n_drop: number
+  account: number
+  data_end?: string | null
+  test_start?: string | null
+  learning_rate?: number | null
+  pool?: string
+  updated_at?: string | null
+}
+
+export type QlibCandidate = {
+  rank: number
+  code: string
+  symbol: string
+  name: string
+  score: number
+  next_day_pct_chg?: number | null
+}
+
+export type QlibRun = {
+  id: string
+  run_id: string
+  job_id: string
+  pool: string
+  as_of: string
+  workflow: QlibWorkflow
+  artifact_ref: string
+  universe_size: number
+  candidate_count: number
+  created_at: string
+  next_trade_date?: string | null
+  candidates?: QlibCandidate[]
+}
+
+export type QlibOverview = {
+  pool: PoolSummary
+  workflow: QlibWorkflow
+  data: {
+    ready: boolean
+    qlib_dir: string
+    calendar_first: string | null
+    calendar_last: string | null
+    pool_members: number
+    symbol_count: number
+    prepared_at: string | null
+  }
+  latest_run: QlibRun | null
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? ""
 
 function apiUrl(path: string): string {
@@ -58,6 +117,43 @@ export async function queryPools(): Promise<PoolsList> {
   return (await response.json()) as PoolsList
 }
 
+export async function queryQlibOverview(pool: string): Promise<QlibOverview> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "qlib.overview", pool }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as QlibOverview
+}
+
+export async function listQlibRuns(pool: string): Promise<QlibRun[]> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "qlib.runs", pool }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  const body = (await response.json()) as { runs: QlibRun[] }
+  return body.runs
+}
+
+export async function getQlibRun(runId: string): Promise<QlibRun> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "qlib.run.get", run_id: runId }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as QlibRun
+}
+
 export type JobStatus =
   "queued" | "running" | "succeeded" | "failed" | "cancelled"
 
@@ -69,6 +165,9 @@ export type Job = {
   command: Record<string, unknown>
   background: boolean
   timeout_seconds: number
+  trigger?: "manual" | "scheduled" | "automation_manual"
+  automation_id?: string | null
+  scheduled_for?: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -76,6 +175,58 @@ export type Job = {
   error: string | null
   log_count: number
   log?: string[]
+}
+
+export type ScheduleKind = "daily" | "weekly" | "trading_day"
+
+export type Automation = {
+  id: string
+  name: string
+  description: string
+  command: Record<string, unknown>
+  schedule_kind: ScheduleKind
+  local_time: string
+  timezone: string
+  weekdays: number[]
+  enabled: boolean
+  archived: boolean
+  misfire_policy: "run_once" | "skip"
+  next_run_at: string | null
+  last_run_at: string | null
+  calendar_status: string | null
+  created_at: string
+  updated_at: string
+  last_status: JobStatus | null
+  last_job_id: string | null
+  last_finished_at: string | null
+}
+
+export type AutomationInput = {
+  name: string
+  description?: string
+  command: Record<string, unknown>
+  schedule_kind: ScheduleKind
+  local_time: string
+  timezone: string
+  weekdays?: number[]
+  enabled: boolean
+  misfire_policy?: "run_once" | "skip"
+}
+
+export type AutomationCommandField = {
+  name: string
+  label: string
+  kind: "text" | "select"
+  default?: string
+  optional?: boolean
+  options?: { value: string; label: string }[]
+}
+
+export type AutomationCommandDefinition = {
+  type: string
+  label: string
+  description: string
+  fields: AutomationCommandField[]
 }
 
 type ErrorBody = {
@@ -125,6 +276,160 @@ export async function queryStatus(pool?: string): Promise<Status> {
     throw new Error(await readError(response))
   }
   return (await response.json()) as Status
+}
+
+export type CalendarMarket = {
+  id: string
+  title: string
+  status: "active" | "planned" | string
+  count: number
+  first: string | null
+  last: string | null
+}
+
+export type CalendarMarkets = {
+  count: number
+  markets: CalendarMarket[]
+}
+
+export type CalendarDay = {
+  date: string
+  is_trading: boolean
+}
+
+export type CalendarMonth = {
+  market: string
+  title: string
+  status: string
+  year: number
+  month: number
+  start: string
+  end: string
+  trading_days: number
+  days: CalendarDay[]
+  today: string
+  today_is_trading: boolean
+  trade_date: string | null
+  coverage: {
+    count: number
+    first: string | null
+    last: string | null
+  }
+}
+
+export async function queryCalendarMarkets(): Promise<CalendarMarkets> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "calendar.markets" }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as CalendarMarkets
+}
+
+export type CalendarSession = {
+  label: string
+  start: string
+  end: string
+}
+
+export type CalendarOverviewMarket = {
+  id: string
+  title: string
+  status: string
+  timezone: string
+  today: string
+  today_is_trading: boolean
+  trade_date: string | null
+  in_session: boolean
+  has_calendar: boolean
+  sessions: CalendarSession[]
+  sessions_note: string | null
+}
+
+export type CalendarOverview = {
+  markets: CalendarOverviewMarket[]
+}
+
+export async function queryCalendarOverview(): Promise<CalendarOverview> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "calendar.overview" }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as CalendarOverview
+}
+
+export async function queryCalendarMonth(options: {
+  market: string
+  year: number
+  month: number
+}): Promise<CalendarMonth> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "calendar.get",
+      market: options.market,
+      year: options.year,
+      month: options.month,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as CalendarMonth
+}
+
+export type CalendarGridMarket = {
+  id: string
+  title: string
+  badge: string
+  status: string
+  timezone: string
+  today: string
+  in_session: boolean
+  has_calendar: boolean
+  sessions: CalendarSession[]
+  sessions_note: string | null
+}
+
+export type CalendarGridDay = {
+  date: string
+  markets: string[]
+}
+
+export type CalendarGrid = {
+  year: number
+  month: number
+  start: string
+  end: string
+  today: string
+  days: CalendarGridDay[]
+  markets: CalendarGridMarket[]
+}
+
+export async function queryCalendarGrid(options?: {
+  year: number
+  month: number
+}): Promise<CalendarGrid> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "calendar.month",
+      ...(options ?? {}),
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as CalendarGrid
 }
 
 export async function queryPoolList(
@@ -241,6 +546,61 @@ export type QuotesSummary = {
   missing_sessions: number
 }
 
+export type FinancialReport = {
+  report_date: string
+  report_type?: string | null
+  notice_date?: string | null
+  eps?: number | null
+  bps?: number | null
+  roe?: number | null
+  revenue?: number | null
+  revenue_yoy?: number | null
+  net_profit?: number | null
+  net_profit_yoy?: number | null
+  gross_margin?: number | null
+  net_margin?: number | null
+  debt_ratio?: number | null
+  updated_at?: string | null
+}
+
+export type FinancialSummary = {
+  count: number
+  latest_report_date: string | null
+}
+
+export type FinancialStatementSheet = "balance" | "profit" | "cashflow"
+
+export type FinancialStatementSheetSummary = {
+  count: number
+  latest_report_date: string | null
+}
+
+export type FinancialStatementsSummary = Record<
+  FinancialStatementSheet,
+  FinancialStatementSheetSummary
+>
+
+export type FinancialStatementKeyItem = {
+  key: string
+  label: string
+  value: number | string | null
+  kind?: "amount" | "percent" | string
+  yoy?: number | null
+  qoq?: number | null
+}
+
+export type FinancialStatementDetail = {
+  code: string
+  ticker: string
+  sheet: FinancialStatementSheet
+  report_date: string
+  report_type?: string | null
+  notice_date?: string | null
+  key_items: FinancialStatementKeyItem[]
+  payload: Record<string, number | string>
+  updated_at?: string | null
+}
+
 export type StockDetail = {
   code: string
   ticker: string
@@ -251,6 +611,9 @@ export type StockDetail = {
   bars: DailyBar[]
   bars_weekly?: DailyBar[]
   bars_yearly?: DailyBar[]
+  financial_reports?: FinancialReport[]
+  financial_summary?: FinancialSummary
+  financial_statements_summary?: FinancialStatementsSummary
 }
 
 export async function queryStock(code: string): Promise<StockDetail> {
@@ -263,6 +626,70 @@ export async function queryStock(code: string): Promise<StockDetail> {
     throw new Error(await readError(response))
   }
   return (await response.json()) as StockDetail
+}
+
+export type StockNewsItem = {
+  title: string
+  summary?: string
+  published_at?: string
+  source?: string
+  url?: string
+}
+
+export type StockNews = {
+  code: string
+  ticker: string
+  count: number
+  news: StockNewsItem[]
+  error?: string | null
+}
+
+export async function queryStockNews(code: string): Promise<StockNews> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "stock.news", code }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as StockNews
+}
+
+export type StockEventKind =
+  "notices" | "research" | "block_trades" | "holder_changes"
+
+export type StockEventItem = {
+  title: string
+  summary?: string
+  published_at?: string
+  source?: string
+  url?: string
+  extra?: Record<string, unknown>
+}
+
+export type StockEvents = {
+  code: string
+  ticker: string
+  kind: StockEventKind
+  count: number
+  events: StockEventItem[]
+  error?: string | null
+}
+
+export async function queryStockEvents(
+  code: string,
+  kind: StockEventKind
+): Promise<StockEvents> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "stock.events", code, kind }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as StockEvents
 }
 
 export type LlmProvider =
@@ -516,8 +943,35 @@ export async function submitQuotesSync(
   })
 }
 
-export async function submitStockSync(codes: string[]): Promise<Job> {
-  return submitCommand({ type: "stock.sync", codes })
+export async function queryFinancialDetail(
+  code: string,
+  options: { sheet: FinancialStatementSheet; reportDate: string }
+): Promise<FinancialStatementDetail> {
+  const response = await fetch(apiUrl("/api/queries"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "stock.financials.detail",
+      code,
+      sheet: options.sheet,
+      report_date: options.reportDate,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response))
+  }
+  return (await response.json()) as FinancialStatementDetail
+}
+
+export async function submitStockSync(
+  codes: string[],
+  options?: { withStatements?: boolean }
+): Promise<Job> {
+  return submitCommand({
+    type: "stock.sync",
+    codes,
+    ...(options?.withStatements ? { with_statements: true } : {}),
+  })
 }
 
 export async function submitCommand(
@@ -532,6 +986,39 @@ export async function submitCommand(
     throw new Error(await readError(response))
   }
   return (await response.json()) as Job
+}
+
+export async function submitQlibRun(
+  pool: string,
+  workflow: QlibWorkflow
+): Promise<Job> {
+  return submitCommand({
+    type: "qlib.run",
+    pool,
+    workflow,
+    background: true,
+  })
+}
+
+export async function submitQlibDump(pool: string): Promise<Job> {
+  return submitCommand({
+    type: "qlib.dump",
+    pool,
+    background: true,
+  })
+}
+
+export async function saveQlibWorkflow(
+  pool: string,
+  workflow: QlibWorkflow
+): Promise<Job> {
+  return waitForJob(
+    await submitCommand({
+      type: "qlib.workflow.update",
+      pool,
+      workflow,
+    })
+  )
 }
 
 export async function waitForJob(job: Job): Promise<Job> {
@@ -589,6 +1076,13 @@ export async function removePoolCodes(
   codes: string[]
 ): Promise<Job> {
   return waitForJob(await submitCommand({ type: "pool.remove", pool, codes }))
+}
+
+export async function reorderPoolMembers(
+  pool: string,
+  codes: string[]
+): Promise<Job> {
+  return waitForJob(await submitCommand({ type: "pool.reorder", pool, codes }))
 }
 
 export async function addStockCodes(codes: string): Promise<Job> {
@@ -695,13 +1189,105 @@ export async function getAnalyzeReport(input: {
   }
 }
 
-export async function listJobs(): Promise<Job[]> {
-  const response = await fetch(apiUrl("/api/jobs"))
+export async function listJobs(filters?: {
+  automation_id?: string
+  date?: string
+  trigger?: string
+  limit?: number
+  offset?: number
+}): Promise<Job[]> {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters ?? {})) {
+    if (value !== undefined && value !== "") query.set(key, String(value))
+  }
+  const response = await fetch(
+    apiUrl(`/api/jobs${query.size > 0 ? `?${query}` : ""}`)
+  )
   if (!response.ok) {
     throw new Error(await readError(response))
   }
   const body = (await response.json()) as { jobs?: Job[] }
   return Array.isArray(body.jobs) ? body.jobs : []
+}
+
+export async function listAutomations(): Promise<Automation[]> {
+  const response = await fetch(apiUrl("/api/automations"))
+  if (!response.ok) throw new Error(await readError(response))
+  const body = (await response.json()) as { automations?: Automation[] }
+  return Array.isArray(body.automations) ? body.automations : []
+}
+
+export async function getAutomation(id: string): Promise<Automation> {
+  const response = await fetch(apiUrl(`/api/automations/${id}`))
+  if (!response.ok) throw new Error(await readError(response))
+  return (await response.json()) as Automation
+}
+
+export async function getAutomationCatalog(): Promise<
+  AutomationCommandDefinition[]
+> {
+  const response = await fetch(apiUrl("/api/automations/catalog"))
+  if (!response.ok) throw new Error(await readError(response))
+  const body = (await response.json()) as {
+    commands?: AutomationCommandDefinition[]
+  }
+  return Array.isArray(body.commands) ? body.commands : []
+}
+
+export async function createAutomation(
+  input: AutomationInput
+): Promise<Automation> {
+  const response = await fetch(apiUrl("/api/automations"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  return (await response.json()) as Automation
+}
+
+export async function updateAutomation(
+  id: string,
+  input: Partial<AutomationInput>
+): Promise<Automation> {
+  const response = await fetch(apiUrl(`/api/automations/${id}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  return (await response.json()) as Automation
+}
+
+export async function archiveAutomation(id: string): Promise<Automation> {
+  const response = await fetch(apiUrl(`/api/automations/${id}`), {
+    method: "DELETE",
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  return (await response.json()) as Automation
+}
+
+export async function runAutomation(id: string): Promise<Job> {
+  const response = await fetch(apiUrl(`/api/automations/${id}/run`), {
+    method: "POST",
+  })
+  if (!response.ok) throw new Error(await readError(response))
+  return (await response.json()) as Job
+}
+
+export async function listAutomationRuns(
+  id: string,
+  date?: string
+): Promise<{ jobs: Job[]; count: number }> {
+  const query = new URLSearchParams()
+  if (date) query.set("date", date)
+  const response = await fetch(
+    apiUrl(`/api/automations/${id}/runs${query.size ? `?${query}` : ""}`)
+  )
+  if (!response.ok) throw new Error(await readError(response))
+  const body = (await response.json()) as { jobs?: Job[]; count?: number }
+  const jobs = Array.isArray(body.jobs) ? body.jobs : []
+  return { jobs, count: body.count ?? jobs.length }
 }
 
 export async function getJob(jobId: string): Promise<Job> {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router"
-import { CircleAlertIcon, FileTextIcon, InfoIcon } from "lucide-react"
+import { FileTextIcon, InfoIcon } from "lucide-react"
 
 import { useJobs } from "@/components/job-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -80,6 +80,7 @@ import {
   jobStatusVariant,
   pickJobString,
 } from "@/lib/jobs"
+import { notify } from "@/lib/notify"
 
 const ANALYST_OPTIONS: { id: AnalystKind; label: string }[] = [
   { id: "market", label: "技术" },
@@ -213,7 +214,6 @@ function reportSectionText(
 export function AnalyzePage() {
   const { trackJob, jobs } = useJobs()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
@@ -242,6 +242,10 @@ export function AnalyzePage() {
 
   const logEndRef = useRef<HTMLDivElement>(null)
   const reportCardRef = useRef<HTMLDivElement>(null)
+
+  function reportError(message: string) {
+    notify.error("分析页出错", { description: message })
+  }
   const unwatchRef = useRef<(() => void) | null>(null)
   const skipLogsRef = useRef(0)
   const urlApplied = useRef(false)
@@ -336,7 +340,7 @@ export function AnalyzePage() {
         }
       },
       (message) => {
-        setError(message)
+        reportError(message)
       }
     )
   }
@@ -380,7 +384,6 @@ export function AnalyzePage() {
     runId?: string
   ) {
     setReportLoading(true)
-    setError(null)
     try {
       const detail = await getAnalyzeReport({
         code: nextCode,
@@ -398,7 +401,7 @@ export function AnalyzePage() {
       }
       setSearchParams(params, { replace: true })
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "读取报告失败")
+      reportError(err instanceof Error ? err.message : "读取报告失败")
     } finally {
       setReportLoading(false)
     }
@@ -427,10 +430,12 @@ export function AnalyzePage() {
         const urlCode = searchParams.get("code")
         const urlDate = searchParams.get("date")
         const urlRun = searchParams.get("run")
+        const urlPool = searchParams.get("pool")
         if (urlCode) {
           setFilterByCode(true)
         }
         const preferredPool =
+          listing.pools.find((pool) => pool.id === urlPool)?.id ??
           listing.pools.find((pool) => pool.id === nextSettings.pool)?.id ??
           listing.pools[0]?.id ??
           ""
@@ -455,10 +460,9 @@ export function AnalyzePage() {
           setLogs(full.log ?? [])
           attachJob(full, full.log?.length ?? 0)
         }
-        setError(null)
       } catch (err: unknown) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "加载失败")
+          reportError(err instanceof Error ? err.message : "加载失败")
         }
       } finally {
         if (!cancelled) {
@@ -487,7 +491,7 @@ export function AnalyzePage() {
       const nextCode = await loadMembers(next)
       await loadReports(next, filterByCode ? nextCode : undefined)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "加载股票池失败")
+      reportError(err instanceof Error ? err.message : "加载股票池失败")
     }
   }
 
@@ -504,7 +508,7 @@ export function AnalyzePage() {
       try {
         await loadReports(poolId, next)
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "加载报告失败")
+        reportError(err instanceof Error ? err.message : "加载报告失败")
       }
     }
   }
@@ -514,7 +518,7 @@ export function AnalyzePage() {
     try {
       await loadReports(poolId, checked ? code : undefined)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "加载报告失败")
+      reportError(err instanceof Error ? err.message : "加载报告失败")
     }
   }
 
@@ -523,7 +527,6 @@ export function AnalyzePage() {
       return
     }
     setSubmitting(true)
-    setError(null)
     try {
       const next = await submitAnalyzeRun({
         pool: poolId,
@@ -539,7 +542,7 @@ export function AnalyzePage() {
         jobs.some((item) => item.status === "running" || item.id === next.id)
       )
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "提交失败")
+      reportError(err instanceof Error ? err.message : "提交失败")
     } finally {
       setSubmitting(false)
     }
@@ -551,13 +554,6 @@ export function AnalyzePage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {error ? (
-        <Alert variant="destructive">
-          <CircleAlertIcon />
-          <AlertTitle>分析页出错</AlertTitle>
-          <AlertDescription>{error}。确认 core 已启动。</AlertDescription>
-        </Alert>
-      ) : null}
       <Alert>
         <InfoIcon />
         <AlertTitle>行情来源</AlertTitle>
@@ -733,13 +729,6 @@ export function AnalyzePage() {
                 </pre>
                 <div ref={logEndRef} />
               </ScrollArea>
-              {job.status === "failed" && job.error ? (
-                <Alert variant="destructive">
-                  <CircleAlertIcon />
-                  <AlertTitle>任务失败</AlertTitle>
-                  <AlertDescription>{job.error}</AlertDescription>
-                </Alert>
-              ) : null}
               {job.status === "succeeded" ? (
                 <div className="flex flex-col gap-2">
                   <CardTitle>{decision || "已完成"}</CardTitle>

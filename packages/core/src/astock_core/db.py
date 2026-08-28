@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from astock_core.paths import DATA_DIR, DB_PATH, DEFAULT_ADJUST, DEFAULT_POOL_ID
+from astock_core.session import (
+    DEFAULT_MARKET,
+    get_policy,
+    market_now,
+    session_ceiling_date,
+)
 
 _POOL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
 
@@ -20,6 +27,16 @@ INGEST_KINDS = {
     "monthly": "stock_monthly",
 }
 
+
+def _quote_sync_fields(last_bar: str | None, last_cal: str | None) -> dict[str, object]:
+    if last_bar is None:
+        plan = "full"
+    elif last_cal and last_bar >= last_cal:
+        plan = "current"
+    else:
+        plan = "fill"
+    return {"quote_plan": plan, "needs_sync": plan != "current"}
+
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -33,7 +50,9 @@ CREATE TABLE IF NOT EXISTS stocks (
 );
 
 CREATE TABLE IF NOT EXISTS trade_calendar (
-    trade_date TEXT PRIMARY KEY
+    market_id TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    PRIMARY KEY (market_id, trade_date)
 );
 
 CREATE TABLE IF NOT EXISTS bars_daily (
@@ -144,6 +163,7 @@ CREATE TABLE IF NOT EXISTS pool_members (
     first_added_at TEXT NOT NULL,
     last_added_at TEXT NOT NULL,
     removed_at TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (pool_id, code)
 );
 
@@ -170,6 +190,42 @@ CREATE TABLE IF NOT EXISTS board_members (
 
 CREATE INDEX IF NOT EXISTS idx_board_members_code
     ON board_members (code);
+
+CREATE TABLE IF NOT EXISTS financial_reports (
+    code TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+    report_type TEXT,
+    notice_date TEXT,
+    eps REAL,
+    bps REAL,
+    roe REAL,
+    revenue REAL,
+    revenue_yoy REAL,
+    net_profit REAL,
+    net_profit_yoy REAL,
+    gross_margin REAL,
+    net_margin REAL,
+    debt_ratio REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, report_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_reports_code_date
+    ON financial_reports (code, report_date DESC);
+
+CREATE TABLE IF NOT EXISTS financial_statements (
+    code TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+    sheet TEXT NOT NULL,
+    report_type TEXT,
+    notice_date TEXT,
+    payload_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, report_date, sheet)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_statements_code_sheet_date
+    ON financial_statements (code, sheet, report_date DESC);
 """
 
 
@@ -200,6 +256,8 @@ class MarketDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self._migrate_stock_profile_columns()
+        self._migrate_trade_calendar_market()
+        self._migrate_pool_member_sort_order()
         self.ensure_pool(DEFAULT_POOL_ID, "默认股票池")
         self._migrate_universe_into_default_pool()
 
@@ -247,6 +305,75 @@ class MarketDB:
             for name, decl in columns:
                 if name not in existing:
                     self.conn.execute(f"ALTER TABLE stocks ADD COLUMN {name} {decl}")
+
+    def _migrate_pool_member_sort_order(self) -> None:
+        cols = {
+            row[1] for row in self.conn.execute("PRAGMA table_info(pool_members)")
+        }
+        if not cols:
+            return
+        with self.conn:
+            if "sort_order" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE pool_members ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                )
+                pools = self.conn.execute(
+                    "SELECT DISTINCT pool_id FROM pool_members"
+                ).fetchall()
+                for pool in pools:
+                    rows = self.conn.execute(
+                        """
+                        SELECT code FROM pool_members
+                        WHERE pool_id = ?
+                        ORDER BY status, code
+                        """,
+                        (pool["pool_id"],),
+                    ).fetchall()
+                    for index, row in enumerate(rows):
+                        self.conn.execute(
+                            """
+                            UPDATE pool_members
+                            SET sort_order = ?
+                            WHERE pool_id = ? AND code = ?
+                            """,
+                            (index, pool["pool_id"], row["code"]),
+                        )
+            self.conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_pool_members_sort
+                    ON pool_members (pool_id, status, sort_order)
+                """
+            )
+
+    def _migrate_trade_calendar_market(self) -> None:
+        cols = {
+            row[1] for row in self.conn.execute("PRAGMA table_info(trade_calendar)")
+        }
+        if not cols:
+            return
+        if "market_id" in cols:
+            return
+        with self.conn:
+            self.conn.execute(
+                """
+                CREATE TABLE trade_calendar__market (
+                    market_id TEXT NOT NULL,
+                    trade_date TEXT NOT NULL,
+                    PRIMARY KEY (market_id, trade_date)
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO trade_calendar__market (market_id, trade_date)
+                SELECT ?, trade_date FROM trade_calendar
+                """,
+                (DEFAULT_MARKET,),
+            )
+            self.conn.execute("DROP TABLE trade_calendar")
+            self.conn.execute(
+                "ALTER TABLE trade_calendar__market RENAME TO trade_calendar"
+            )
 
     def upsert_stock_profile(self, code: str, *, name: str, **fields: object) -> None:
         now = datetime.now().isoformat(timespec="seconds")
@@ -306,6 +433,209 @@ class MarketDB:
             (code,),
         ).fetchone()
         return dict(row) if row else None
+
+    def upsert_financial_reports(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        now = datetime.now().isoformat(timespec="seconds")
+        payload: list[tuple] = []
+        for row in rows:
+            report_date = _ymd(row.get("report_date") or "")
+            if not report_date:
+                continue
+            payload.append(
+                (
+                    code,
+                    report_date,
+                    row.get("report_type"),
+                    row.get("notice_date"),
+                    row.get("eps"),
+                    row.get("bps"),
+                    row.get("roe"),
+                    row.get("revenue"),
+                    row.get("revenue_yoy"),
+                    row.get("net_profit"),
+                    row.get("net_profit_yoy"),
+                    row.get("gross_margin"),
+                    row.get("net_margin"),
+                    row.get("debt_ratio"),
+                    now,
+                )
+            )
+        if not payload:
+            return 0
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT INTO financial_reports (
+                    code, report_date, report_type, notice_date,
+                    eps, bps, roe, revenue, revenue_yoy,
+                    net_profit, net_profit_yoy, gross_margin, net_margin,
+                    debt_ratio, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(code, report_date) DO UPDATE SET
+                    report_type = excluded.report_type,
+                    notice_date = excluded.notice_date,
+                    eps = excluded.eps,
+                    bps = excluded.bps,
+                    roe = excluded.roe,
+                    revenue = excluded.revenue,
+                    revenue_yoy = excluded.revenue_yoy,
+                    net_profit = excluded.net_profit,
+                    net_profit_yoy = excluded.net_profit_yoy,
+                    gross_margin = excluded.gross_margin,
+                    net_margin = excluded.net_margin,
+                    debt_ratio = excluded.debt_ratio,
+                    updated_at = excluded.updated_at
+                """,
+                payload,
+            )
+        return len(payload)
+
+    def list_financial_reports(
+        self,
+        code: str,
+        *,
+        limit: int = 12,
+    ) -> list[dict]:
+        rows = self.conn.execute(
+            """
+            SELECT
+                report_date, report_type, notice_date,
+                eps, bps, roe, revenue, revenue_yoy,
+                net_profit, net_profit_yoy, gross_margin, net_margin,
+                debt_ratio, updated_at
+            FROM financial_reports
+            WHERE code = ?
+            ORDER BY report_date DESC
+            LIMIT ?
+            """,
+            (code, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def financial_report_count(self, code: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM financial_reports WHERE code = ?",
+            (code,),
+        ).fetchone()
+        return int(row["c"]) if row else 0
+
+    def latest_financial_report_date(self, code: str) -> str | None:
+        row = self.conn.execute(
+            """
+            SELECT MAX(report_date) AS d
+            FROM financial_reports
+            WHERE code = ?
+            """,
+            (code,),
+        ).fetchone()
+        return row["d"] if row and row["d"] else None
+
+    def upsert_financial_statements(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        now = datetime.now().isoformat(timespec="seconds")
+        payload: list[tuple] = []
+        for row in rows:
+            report_date = _ymd(row.get("report_date") or "")
+            sheet = str(row.get("sheet") or "").strip()
+            raw_json = row.get("payload_json")
+            if not report_date or not sheet or not raw_json:
+                continue
+            if isinstance(raw_json, dict):
+                raw_json = json.dumps(raw_json, ensure_ascii=False, separators=(",", ":"))
+            payload.append(
+                (
+                    code,
+                    report_date,
+                    sheet,
+                    row.get("report_type"),
+                    row.get("notice_date"),
+                    str(raw_json),
+                    now,
+                )
+            )
+        if not payload:
+            return 0
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT INTO financial_statements (
+                    code, report_date, sheet, report_type, notice_date,
+                    payload_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(code, report_date, sheet) DO UPDATE SET
+                    report_type = excluded.report_type,
+                    notice_date = excluded.notice_date,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                payload,
+            )
+        return len(payload)
+
+    def list_financial_statement_dates(
+        self,
+        code: str,
+        sheet: str,
+        *,
+        limit: int = 12,
+    ) -> list[str]:
+        rows = self.conn.execute(
+            """
+            SELECT report_date
+            FROM financial_statements
+            WHERE code = ? AND sheet = ?
+            ORDER BY report_date DESC
+            LIMIT ?
+            """,
+            (code, sheet, limit),
+        ).fetchall()
+        return [str(row["report_date"]) for row in rows]
+
+    def get_financial_statement(
+        self,
+        code: str,
+        report_date: str,
+        sheet: str,
+    ) -> dict | None:
+        row = self.conn.execute(
+            """
+            SELECT
+                code, report_date, sheet, report_type, notice_date,
+                payload_json, updated_at
+            FROM financial_statements
+            WHERE code = ? AND report_date = ? AND sheet = ?
+            """,
+            (code, _ymd(report_date), sheet),
+        ).fetchone()
+        if row is None:
+            return None
+        data = dict(row)
+        try:
+            data["payload"] = json.loads(data.pop("payload_json"))
+        except json.JSONDecodeError:
+            data["payload"] = {}
+            data.pop("payload_json", None)
+        return data
+
+    def financial_statement_summary(self, code: str) -> dict[str, dict[str, object]]:
+        out: dict[str, dict[str, object]] = {}
+        for sheet in ("balance", "profit", "cashflow"):
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS c, MAX(report_date) AS latest
+                FROM financial_statements
+                WHERE code = ? AND sheet = ?
+                """,
+                (code, sheet),
+            ).fetchone()
+            out[sheet] = {
+                "count": int(row["c"]) if row else 0,
+                "latest_report_date": row["latest"] if row and row["latest"] else None,
+            }
+        return out
 
     def pool_membership(self, pool_id: str, code: str) -> dict | None:
         row = self.conn.execute(
@@ -442,7 +772,7 @@ class MarketDB:
         ).fetchone()
         first = row["first"]
         last = row["last"]
-        last_cal = self.last_calendar_date()
+        last_cal = self.current_trade_date()
         missing = 0
         if first and last_cal:
             missing = int(
@@ -450,14 +780,15 @@ class MarketDB:
                     """
                     SELECT COUNT(*) AS n
                     FROM trade_calendar c
-                    WHERE c.trade_date >= ?
+                    WHERE c.market_id = ?
+                      AND c.trade_date >= ?
                       AND c.trade_date <= ?
                       AND NOT EXISTS (
                         SELECT 1 FROM bars_daily b
                         WHERE b.code = ? AND b.adjust = ? AND b.trade_date = c.trade_date
                       )
                     """,
-                    (first, last_cal, code, adjust),
+                    (DEFAULT_MARKET, first, last_cal, code, adjust),
                 ).fetchone()["n"]
             )
         return {
@@ -496,23 +827,168 @@ class MarketDB:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def replace_calendar(self, dates: list[date | str]) -> int:
-        rows = [(_ymd(item),) for item in dates]
+    def replace_calendar(
+        self,
+        dates: list[date | str],
+        *,
+        market_id: str = DEFAULT_MARKET,
+    ) -> int:
+        rows = [(market_id, _ymd(item)) for item in dates]
         with self.conn:
-            self.conn.execute("DELETE FROM trade_calendar")
+            self.conn.execute(
+                "DELETE FROM trade_calendar WHERE market_id = ?",
+                (market_id,),
+            )
             self.conn.executemany(
-                "INSERT OR IGNORE INTO trade_calendar (trade_date) VALUES (?)",
+                "INSERT OR IGNORE INTO trade_calendar (market_id, trade_date) VALUES (?, ?)",
                 rows,
             )
         return len(rows)
 
-    def last_calendar_date(self, as_of: date | None = None) -> str | None:
+    def last_calendar_date(
+        self,
+        as_of: date | None = None,
+        *,
+        market_id: str = DEFAULT_MARKET,
+    ) -> str | None:
         today = (as_of or date.today()).isoformat()
         row = self.conn.execute(
-            "SELECT MAX(trade_date) AS d FROM trade_calendar WHERE trade_date <= ?",
-            (today,),
+            """
+            SELECT MAX(trade_date) AS d
+            FROM trade_calendar
+            WHERE market_id = ? AND trade_date <= ?
+            """,
+            (market_id, today),
         ).fetchone()
         return row["d"] if row and row["d"] else None
+
+    def current_trade_date(
+        self,
+        *,
+        market_id: str = DEFAULT_MARKET,
+        now: datetime | None = None,
+    ) -> str | None:
+        """系统当前交易日（展示 / 是否已齐），按市场 session 切点计算。"""
+        policy = get_policy(market_id)
+        ceiling = session_ceiling_date(now, policy=policy)
+        return self.last_calendar_date(as_of=ceiling, market_id=market_id)
+
+    def is_trading_day(
+        self,
+        day: date | str,
+        *,
+        market_id: str = DEFAULT_MARKET,
+    ) -> bool:
+        trade_date = _ymd(day)
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM trade_calendar
+            WHERE market_id = ? AND trade_date = ?
+            """,
+            (market_id, trade_date),
+        ).fetchone()
+        return row is not None
+
+    def list_calendar_dates(
+        self,
+        start: date | str,
+        end: date | str,
+        *,
+        market_id: str = DEFAULT_MARKET,
+    ) -> list[str]:
+        start_s = _ymd(start)
+        end_s = _ymd(end)
+        rows = self.conn.execute(
+            """
+            SELECT trade_date FROM trade_calendar
+            WHERE market_id = ? AND trade_date >= ? AND trade_date <= ?
+            ORDER BY trade_date
+            """,
+            (market_id, start_s, end_s),
+        ).fetchall()
+        return [row["trade_date"] for row in rows]
+
+    def calendar_month(
+        self,
+        year: int,
+        month: int,
+        *,
+        market_id: str = DEFAULT_MARKET,
+    ) -> dict[str, object]:
+        if month < 1 or month > 12:
+            raise ValueError("month 必须在 1–12")
+        start = date(year, month, 1)
+        if month == 12:
+            end = date(year, 12, 31)
+        else:
+            end = date(year, month + 1, 1) - timedelta(days=1)
+        trading = set(self.list_calendar_dates(start, end, market_id=market_id))
+        days: list[dict[str, object]] = []
+        cursor = start
+        while cursor <= end:
+            iso = cursor.isoformat()
+            days.append({"date": iso, "is_trading": iso in trading})
+            cursor += timedelta(days=1)
+        return {
+            "market": market_id,
+            "year": year,
+            "month": month,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "trading_days": len(trading),
+            "days": days,
+        }
+
+    def calendar_coverage(self, *, market_id: str = DEFAULT_MARKET) -> dict[str, object]:
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS n, MIN(trade_date) AS first, MAX(trade_date) AS last
+            FROM trade_calendar
+            WHERE market_id = ?
+            """,
+            (market_id,),
+        ).fetchone()
+        return {
+            "count": int(row["n"] or 0),
+            "first": row["first"],
+            "last": row["last"],
+        }
+
+    def calendar_synced_today(
+        self,
+        *,
+        market_id: str = DEFAULT_MARKET,
+        now: datetime | None = None,
+    ) -> bool:
+        """交易日历是否已在该市场本地自然日同步过。"""
+        policy = get_policy(market_id)
+        today = market_now(now, policy=policy).date().isoformat()
+        row = self.conn.execute(
+            """
+            SELECT last_trade_date FROM ingest_state
+            WHERE code = ? AND kind = 'calendar' AND adjust = ''
+            """,
+            (market_id,),
+        ).fetchone()
+        return bool(row and row["last_trade_date"] == today)
+
+    def mark_calendar_synced(
+        self,
+        *,
+        market_id: str = DEFAULT_MARKET,
+        now: datetime | None = None,
+        rows: int = 0,
+    ) -> None:
+        policy = get_policy(market_id)
+        today = market_now(now, policy=policy).date().isoformat()
+        self.mark_ingest(
+            market_id,
+            "calendar",
+            "ok",
+            adjust="",
+            last_trade_date=today,
+            rows=rows,
+        )
 
     def replace_stocks(self, stocks: list[tuple[str, str]]) -> int:
         now = datetime.now().isoformat(timespec="seconds")
@@ -876,6 +1352,7 @@ class MarketDB:
         reactivated = 0
         unchanged = 0
         with self.conn:
+            next_order = self._next_pool_sort_order(pool_id)
             for code, name in members:
                 row = self.conn.execute(
                     """
@@ -889,23 +1366,25 @@ class MarketDB:
                         """
                         INSERT INTO pool_members (
                             pool_id, code, name, status, source,
-                            first_added_at, last_added_at, removed_at
-                        ) VALUES (?, ?, ?, 'active', ?, ?, ?, NULL)
+                            first_added_at, last_added_at, removed_at, sort_order
+                        ) VALUES (?, ?, ?, 'active', ?, ?, ?, NULL, ?)
                         """,
-                        (pool_id, code, name, source, now, now),
+                        (pool_id, code, name, source, now, now, next_order),
                     )
                     added += 1
+                    next_order += 1
                 elif row["status"] == "removed":
                     self.conn.execute(
                         """
                         UPDATE pool_members
                         SET name = ?, status = 'active', source = ?,
-                            last_added_at = ?, removed_at = NULL
+                            last_added_at = ?, removed_at = NULL, sort_order = ?
                         WHERE pool_id = ? AND code = ?
                         """,
-                        (name, source, now, pool_id, code),
+                        (name, source, now, next_order, pool_id, code),
                     )
                     reactivated += 1
+                    next_order += 1
                 else:
                     self.conn.execute(
                         """
@@ -917,6 +1396,46 @@ class MarketDB:
                     )
                     unchanged += 1
         return {"added": added, "reactivated": reactivated, "unchanged": unchanged}
+
+    def _next_pool_sort_order(self, pool_id: str) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(MAX(sort_order), -1) + 1 AS n
+            FROM pool_members
+            WHERE pool_id = ?
+            """,
+            (pool_id,),
+        ).fetchone()
+        return int(row["n"])
+
+    def reorder_pool_members(self, pool_id: str, codes: list[str]) -> dict[str, int]:
+        if not codes:
+            raise ValueError("排序需要至少一只股票")
+        if len(codes) != len(set(codes)):
+            raise ValueError("排序列表不能有重复代码")
+        active = self.active_pool_codes(pool_id)
+        wanted = set(codes)
+        current = set(active)
+        extra = wanted - current
+        missing = current - wanted
+        if extra or missing:
+            parts: list[str] = []
+            if extra:
+                parts.append(f"不在池中: {_preview_codes(sorted(extra))}")
+            if missing:
+                parts.append(f"缺少: {_preview_codes(sorted(missing))}")
+            raise ValueError("排序必须覆盖当前全部成员。" + "；".join(parts))
+        with self.conn:
+            for index, code in enumerate(codes):
+                self.conn.execute(
+                    """
+                    UPDATE pool_members
+                    SET sort_order = ?
+                    WHERE pool_id = ? AND code = ?
+                    """,
+                    (index, pool_id, code),
+                )
+        return {"count": len(codes)}
 
     def remove_pool_members(self, pool_id: str, codes: list[str]) -> dict[str, int]:
         now = datetime.now().isoformat(timespec="seconds")
@@ -972,7 +1491,7 @@ class MarketDB:
             """
             SELECT code FROM pool_members
             WHERE pool_id = ? AND status = 'active'
-            ORDER BY code
+            ORDER BY sort_order, code
             """,
             (pool_id,),
         ).fetchall()
@@ -994,6 +1513,7 @@ class MarketDB:
                 m.first_added_at,
                 m.last_added_at,
                 m.removed_at,
+                m.sort_order,
                 (
                     SELECT MAX(b.trade_date)
                     FROM bars_daily b
@@ -1005,17 +1525,24 @@ class MarketDB:
         params: list = [adjust, pool_id]
         if not include_removed:
             sql += " AND m.status = 'active'"
-        sql += " ORDER BY m.status, m.code"
+        sql += " ORDER BY m.status, m.sort_order, m.code"
         rows = self.conn.execute(sql, params).fetchall()
-        return [dict(row) for row in rows]
+        last_cal = self.current_trade_date()
+        members = []
+        for row in rows:
+            item = dict(row)
+            item.update(_quote_sync_fields(item.get("last_bar"), last_cal))
+            members.append(item)
+        return members
 
     def pool_quote_plan(
         self,
         pool_id: str = DEFAULT_POOL_ID,
         *,
         adjust: str = DEFAULT_ADJUST,
+        now: datetime | None = None,
     ) -> dict[str, list[str]]:
-        last_cal = self.last_calendar_date()
+        last_cal = self.current_trade_date(now=now)
         full: list[str] = []
         fill: list[str] = []
         current: list[str] = []

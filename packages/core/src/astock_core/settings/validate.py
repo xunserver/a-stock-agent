@@ -95,6 +95,8 @@ def _validate_value(spec: dict[str, Any], value: Any, title: str) -> Any:
             raise ValueError(f"{title}必须是布尔值")
     elif "array" in types:
         value = _as_array(spec, value, title)
+    elif "object" in types:
+        value = _as_object(spec, value, title)
     elif "string" in types:
         value = _as_string(spec, value, title)
     else:
@@ -162,10 +164,13 @@ def _as_array(spec: dict[str, Any], value: Any, title: str) -> list[Any]:
     for item in value:
         if isinstance(items_spec, dict):
             item = _validate_value(items_spec, item, title)
-        text = str(item)
-        if spec.get("uniqueItems") and text in seen:
+        if isinstance(item, dict):
+            marker = repr(sorted(item.items()))
+        else:
+            marker = str(item)
+        if spec.get("uniqueItems") and marker in seen:
             continue
-        seen.add(text)
+        seen.add(marker)
         out.append(item)
     min_items = spec.get("minItems")
     if min_items is not None and len(out) < int(min_items):
@@ -174,3 +179,41 @@ def _as_array(spec: dict[str, Any], value: Any, title: str) -> list[Any]:
     if max_items is not None and len(out) > int(max_items):
         raise ValueError(f"{title}数量过多")
     return out
+
+
+def _as_object(spec: dict[str, Any], value: Any, title: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{title}必须是对象")
+    properties = spec.get("properties")
+    additional = spec.get("additionalProperties", True)
+    out: dict[str, Any] = {}
+    if isinstance(properties, dict) and properties:
+        extra = set(value) - set(properties)
+        if extra and additional is False:
+            raise ValueError(f"{title}含未知字段: {', '.join(sorted(extra))}")
+        required = spec.get("required") or []
+        missing = [name for name in required if name not in value]
+        if missing:
+            raise ValueError(f"{title}缺少字段: {', '.join(missing)}")
+        for name, item_spec in properties.items():
+            if name not in value:
+                continue
+            if not isinstance(item_spec, dict):
+                raise ValueError(f"{title}.{name} 的 schema 不合法")
+            out[name] = _validate_value(item_spec, value[name], f"{title}.{name}")
+        if additional is not False:
+            for name, item in value.items():
+                if name in properties:
+                    continue
+                if isinstance(additional, dict):
+                    out[str(name)] = _validate_value(additional, item, f"{title}.{name}")
+                else:
+                    out[str(name)] = item
+        return out
+    if additional is False and value:
+        raise ValueError(f"{title}不能包含字段")
+    if isinstance(additional, dict):
+        for name, item in value.items():
+            out[str(name)] = _validate_value(additional, item, f"{title}.{name}")
+        return out
+    return {str(key): item for key, item in value.items()}

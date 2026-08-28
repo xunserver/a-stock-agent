@@ -13,13 +13,14 @@ from typing import Any
 import pandas as pd
 
 from astock import eastmoney
-from astock.config import REQUEST_SLEEP_SECONDS
+from astock.config import request_sleep_seconds
 from astock.ingest import _call
 
 logger = logging.getLogger(__name__)
 
 BATCH_MIN_CODES = 8
 REPORT_TRIES = 4
+SUMMARY_REPORT_PERIODS = 12
 
 PROFILE_VALUE_KEYS = (
     "industry",
@@ -63,9 +64,13 @@ def secucode(code: str) -> str:
 
 
 def report_date_candidates(today: date | None = None) -> list[str]:
+    return summary_report_dates(today, periods=REPORT_TRIES)
+
+
+def summary_report_dates(today: date | None = None, *, periods: int = SUMMARY_REPORT_PERIODS) -> list[str]:
     today = today or date.today()
     quarters: list[date] = []
-    for year in (today.year, today.year - 1):
+    for year in range(today.year, today.year - 25, -1):
         quarters.extend(
             [
                 date(year, 3, 31),
@@ -76,7 +81,7 @@ def report_date_candidates(today: date | None = None) -> list[str]:
         )
     passed = [item for item in quarters if item <= today]
     passed.sort(reverse=True)
-    return [item.strftime("%Y%m%d") for item in passed[:REPORT_TRIES]]
+    return [item.strftime("%Y%m%d") for item in passed[:periods]]
 
 
 def as_text(value: object) -> str | None:
@@ -167,6 +172,165 @@ def map_zcfz(row: dict[str, Any]) -> dict[str, Any]:
     return {"debt_ratio": as_float(row.get("资产负债率"))}
 
 
+def map_lrb(row: dict[str, Any]) -> dict[str, Any]:
+    revenue = as_float(row.get("营业总收入"))
+    net_profit = as_float(row.get("净利润"))
+    net_margin = None
+    if revenue and net_profit is not None and revenue != 0:
+        net_margin = net_profit / revenue * 100
+    return {
+        "revenue": revenue,
+        "revenue_yoy": as_float(row.get("营业总收入同比")),
+        "net_profit": net_profit,
+        "net_profit_yoy": as_float(row.get("净利润同比")),
+        "net_margin": net_margin,
+    }
+
+
+def report_type_from_yyyymmdd(yyyymmdd: str) -> str:
+    mmdd = yyyymmdd[4:8]
+    year = yyyymmdd[:4]
+    labels = {
+        "0331": "一季报",
+        "0630": "中报",
+        "0930": "三季报",
+        "1231": "年报",
+    }
+    suffix = labels.get(mmdd)
+    return f"{year}{suffix}" if suffix else f"{year}-{mmdd}"
+
+
+def merge_batch_report_row(
+    *,
+    report_date: str,
+    report_type: str,
+    notice_date: str | None,
+    yjbb: dict[str, Any] | None = None,
+    zcfz: dict[str, Any] | None = None,
+    lrb: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if not yjbb and not zcfz and not lrb:
+        return None
+    merged = merge_profile(
+        map_yjbb(yjbb or {}),
+        map_zcfz(zcfz or {}),
+        map_lrb(lrb or {}),
+    )
+    if not merged:
+        return None
+    merged["report_date"] = report_date
+    merged["report_type"] = report_type
+    if notice_date:
+        merged["notice_date"] = notice_date
+    return merged
+
+
+def map_batch_report_rows(
+    yjbb_row: dict[str, Any] | None,
+    zcfz_row: dict[str, Any] | None,
+    lrb_row: dict[str, Any] | None,
+    *,
+    report_date_yyyymmdd: str,
+) -> dict[str, Any] | None:
+    report_date = as_list_date(report_date_yyyymmdd) or (
+        f"{report_date_yyyymmdd[:4]}-{report_date_yyyymmdd[4:6]}-{report_date_yyyymmdd[6:8]}"
+    )
+    notice_date = (
+        as_list_date((zcfz_row or {}).get("公告日期"))
+        or as_list_date((lrb_row or {}).get("公告日期"))
+        or as_list_date((yjbb_row or {}).get("最新公告日期"))
+    )
+    return merge_batch_report_row(
+        report_date=report_date,
+        report_type=report_type_from_yyyymmdd(report_date_yyyymmdd),
+        notice_date=notice_date,
+        yjbb=yjbb_row,
+        zcfz=zcfz_row,
+        lrb=lrb_row,
+    )
+
+
+def fetch_financial_summaries_batch(
+    codes: list[str],
+    *,
+    periods: int = SUMMARY_REPORT_PERIODS,
+    today: date | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    import akshare as ak
+
+    wanted = {code.zfill(6) for code in codes if code.strip()}
+    if not wanted:
+        return {}
+    dates = summary_report_dates(today, periods=periods)
+    by_code: dict[str, dict[str, dict[str, Any]]] = {code: {} for code in wanted}
+    for report_date_yyyymmdd in dates:
+        try:
+            yjbb_rows = rows_by_code(
+                _call(ak.stock_yjbb_em, date=report_date_yyyymmdd),
+                "股票代码",
+            )
+        except Exception as exc:
+            logger.warning("业绩报表 %s 拉取失败：%s", report_date_yyyymmdd, exc)
+            yjbb_rows = {}
+        try:
+            zcfz_rows = rows_by_code(
+                _call(ak.stock_zcfz_em, date=report_date_yyyymmdd),
+                "股票代码",
+            )
+        except Exception as exc:
+            logger.warning("资产负债表 %s 拉取失败：%s", report_date_yyyymmdd, exc)
+            zcfz_rows = {}
+        try:
+            lrb_rows = rows_by_code(
+                _call(ak.stock_lrb_em, date=report_date_yyyymmdd),
+                "股票代码",
+            )
+        except Exception as exc:
+            logger.warning("利润表 %s 拉取失败：%s", report_date_yyyymmdd, exc)
+            lrb_rows = {}
+        added = 0
+        for code in wanted:
+            mapped = map_batch_report_rows(
+                yjbb_rows.get(code),
+                zcfz_rows.get(code),
+                lrb_rows.get(code),
+                report_date_yyyymmdd=report_date_yyyymmdd,
+            )
+            if not mapped or not mapped.get("report_date"):
+                continue
+            by_code[code][str(mapped["report_date"])] = mapped
+            added += 1
+        logger.info("批量财报 %s 写入 %s 只", report_date_yyyymmdd, added)
+    out: dict[str, list[dict[str, Any]]] = {}
+    for code, period_rows in by_code.items():
+        if not period_rows:
+            continue
+        rows = sorted(
+            period_rows.values(),
+            key=lambda item: str(item.get("report_date") or ""),
+            reverse=True,
+        )
+        out[code] = rows
+    return out
+
+
+def sync_financial_summaries_batch(
+    db,
+    codes: list[str],
+    *,
+    periods: int = SUMMARY_REPORT_PERIODS,
+) -> dict[str, int]:
+    summaries = fetch_financial_summaries_batch(codes, periods=periods)
+    stocks = 0
+    rows = 0
+    for code, reports in summaries.items():
+        if not reports:
+            continue
+        rows += db.upsert_financial_reports(code, reports)
+        stocks += 1
+    return {"financial_stocks": stocks, "financial_rows": rows}
+
+
 def map_bid_ask(items: dict[str, Any]) -> dict[str, Any]:
     return {
         "latest_price": as_float(items.get("最新")),
@@ -205,6 +369,66 @@ def map_financial_indicator(row: dict[str, Any]) -> dict[str, Any]:
         "gross_margin": as_float(row.get("XSMLL")),
         "net_margin": as_float(row.get("XSJLL")),
         "debt_ratio": as_float(row.get("ZCFZL")),
+    }
+
+
+def _iso_date(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "nat"}:
+        return None
+    if len(text) >= 10 and text[4] == "-":
+        return text[:10]
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    return text[:10]
+
+
+def map_financial_report_row(row: dict[str, Any]) -> dict[str, Any]:
+    report_type = str(row.get("REPORT_DATE_NAME") or row.get("REPORT_TYPE") or "").strip()
+    mapped = map_financial_indicator(row)
+    mapped["report_date"] = _iso_date(row.get("REPORT_DATE"))
+    mapped["report_type"] = report_type or None
+    mapped["notice_date"] = _iso_date(row.get("NOTICE_DATE"))
+    return mapped
+
+
+def fetch_financial_reports(code: str) -> list[dict[str, Any]]:
+    import akshare as ak
+
+    frame = _call(
+        ak.stock_financial_analysis_indicator_em,
+        symbol=secucode(code),
+        indicator="按报告期",
+    )
+    if frame is None or frame.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in frame.to_dict(orient="records"):
+        mapped = map_financial_report_row(raw)
+        if mapped.get("report_date"):
+            rows.append(mapped)
+    rows.sort(key=lambda item: str(item.get("report_date") or ""), reverse=True)
+    return rows
+
+
+def fetch_financial_row(code: str) -> dict[str, Any]:
+    reports = fetch_financial_reports(code)
+    if not reports:
+        return {}
+    latest = reports[0]
+    return {
+        "EPSJB": latest.get("eps"),
+        "BPS": latest.get("bps"),
+        "ROEJQ": latest.get("roe"),
+        "TOTALOPERATEREVE": latest.get("revenue"),
+        "TOTALOPERATEREVETZ": latest.get("revenue_yoy"),
+        "PARENTNETPROFIT": latest.get("net_profit"),
+        "PARENTNETPROFITTZ": latest.get("net_profit_yoy"),
+        "XSMLL": latest.get("gross_margin"),
+        "XSJLL": latest.get("net_margin"),
+        "ZCFZL": latest.get("debt_ratio"),
     }
 
 
@@ -329,19 +553,6 @@ def fetch_individual_items(code: str) -> dict[str, Any]:
     return item_map(_call(ak.stock_individual_info_em, symbol=code))
 
 
-def fetch_financial_row(code: str) -> dict[str, Any]:
-    import akshare as ak
-
-    frame = _call(
-        ak.stock_financial_analysis_indicator_em,
-        symbol=secucode(code),
-        indicator="按报告期",
-    )
-    if frame is None or frame.empty:
-        return {}
-    return frame.iloc[0].to_dict()
-
-
 def fetch_value_row(code: str) -> dict[str, Any]:
     import akshare as ak
 
@@ -381,7 +592,7 @@ def _quote_profile(code: str) -> dict[str, Any]:
 def load_profiles(
     codes: list[str],
     *,
-    sleep: float = REQUEST_SLEEP_SECONDS,
+    sleep: float | None = None,
     today: date | None = None,
     st_codes: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
@@ -390,9 +601,10 @@ def load_profiles(
     if not wanted:
         return {}
     flags = st_codes or set()
+    resolved_sleep = request_sleep_seconds() if sleep is None else sleep
     if len(wanted) >= BATCH_MIN_CODES:
-        return _load_batch(wanted, sleep=sleep, today=today, st_codes=flags)
-    return _load_each(wanted, sleep=sleep, st_codes=flags)
+        return _load_batch(wanted, sleep=resolved_sleep, today=today, st_codes=flags)
+    return _load_each(wanted, sleep=resolved_sleep, st_codes=flags)
 
 
 def _is_st(code: str, profile: dict[str, Any], st_codes: set[str]) -> bool:

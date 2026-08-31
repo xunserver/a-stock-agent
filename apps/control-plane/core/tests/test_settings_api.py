@@ -34,7 +34,7 @@ def test_catalog_lists_modules_and_persists_schema() -> None:
 
         ingest = body["modules"][0]
         assert ingest["title"] == "行情采集"
-        assert [item["id"] for item in ingest["sections"]] == ["quotes", "indexes", "schedule"]
+        assert [item["id"] for item in ingest["sections"]] == ["quotes", "indexes", "sources", "schedule"]
         quotes = ingest["sections"][0]
         assert quotes["schema"]["properties"]["pool"]["type"] == "string"
         assert quotes["values"]["pool"] == "default"

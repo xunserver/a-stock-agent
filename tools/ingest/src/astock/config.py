@@ -8,12 +8,14 @@ from astock_core.settings import SystemDB
 
 _QUOTES: dict[str, Any] | None = None
 _INDEXES: dict[str, Any] | None = None
+_SOURCES: dict[str, Any] | None = None
 
 
 def clear_settings_cache() -> None:
-    global _QUOTES, _INDEXES
+    global _QUOTES, _INDEXES, _SOURCES
     _QUOTES = None
     _INDEXES = None
+    _SOURCES = None
 
 
 def quotes_settings() -> dict[str, Any]:
@@ -72,3 +74,14 @@ def major_indexes() -> tuple[tuple[str, str], ...]:
 def index_aliases() -> dict[str, str]:
     raw = indexes_settings()["aliases"]
     return {str(key): str(value) for key, value in raw.items()}
+
+
+def sources_settings() -> dict[str, tuple[str, ...]]:
+    global _SOURCES
+    if _SOURCES is None:
+        from astock.providers.registry import validate_source_order_config
+
+        with SystemDB() as db:
+            raw = db.get_values("ingest", "sources")
+        _SOURCES = validate_source_order_config(raw)
+    return dict(_SOURCES)

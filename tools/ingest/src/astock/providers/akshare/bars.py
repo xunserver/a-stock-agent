@@ -132,8 +132,7 @@ class AkshareBarAdapter:
     """Translate AKShare Tencent, Sina, and Eastmoney-backed tables into Standard Bars.
 
     Daily calls try Tencent then Sina. Weekly and monthly calls use the Eastmoney-backed
-    ``stock_zh_a_hist``. All of these remain the ``akshare`` registry source; cross-registry
-    fallback is Plan 08. pandas objects never leave ``fetch_bars``.
+    ``stock_zh_a_hist``. All of these remain the ``akshare`` registry source. pandas objects never leave ``fetch_bars``.
     """
 
     def __init__(

@@ -15,6 +15,7 @@ from astock_control.queries import (
     stocks_list_query,
 )
 from astock_core.db import MarketDB
+from astock_core.market_data import Adjustment, Bar, BarInterval, from_legacy_symbol
 from astock_core.paths import DEFAULT_ADJUST
 
 
@@ -96,38 +97,10 @@ def test_stocks_list_and_get_include_ticker_and_bars(tmp_path, monkeypatch) -> N
             pb=0.9,
             roe=12.3,
         )
-        db.upsert_bars(
+        db.upsert_standard_bars(
             [
-                (
-                    "000001",
-                    "2026-08-25",
-                    10.0,
-                    10.5,
-                    10.8,
-                    9.9,
-                    1000.0,
-                    1.0,
-                    8.0,
-                    5.0,
-                    0.5,
-                    1.2,
-                    DEFAULT_ADJUST,
-                ),
-                (
-                    "000001",
-                    "2026-08-26",
-                    10.5,
-                    10.2,
-                    10.6,
-                    10.1,
-                    800.0,
-                    0.8,
-                    4.0,
-                    -2.86,
-                    -0.3,
-                    0.9,
-                    DEFAULT_ADJUST,
-                ),
+                _bar("000001", "2026-08-25"),
+                _bar("000001", "2026-08-26", close=10.2, pct=-2.86),
             ]
         )
 
@@ -295,21 +268,28 @@ def test_stock_events_missing_raises(tmp_path, monkeypatch) -> None:
         stock_events_query("000001", kind="notices", limit=10)
 
 
-def _bar(code: str, trade_date: str) -> tuple:
-    return (
-        code,
-        trade_date,
-        10.0,
-        10.0,
-        10.0,
-        10.0,
-        1.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        DEFAULT_ADJUST,
+def _bar(
+    code: str,
+    trade_date: str,
+    *,
+    close: float = 10.0,
+    pct: float = 0.0,
+) -> Bar:
+    from datetime import date
+
+    return Bar(
+        instrument_id=from_legacy_symbol(code),
+        trade_date=date.fromisoformat(trade_date),
+        interval=BarInterval.D1,
+        adjustment=Adjustment(DEFAULT_ADJUST),
+        open=10.0,
+        high=10.6 if close == 10.2 else 10.0,
+        low=10.1 if close == 10.2 else 10.0,
+        close=close,
+        volume=1000.0 if close == 10.0 else 800.0,
+        amount=1.0 if close == 10.0 else 0.8,
+        turnover_pct=1.2 if close == 10.0 else 0.9,
+        adjustment_factor=1.0,
     )
 
 
@@ -337,7 +317,7 @@ def test_status_and_members_need_sync(tmp_path, monkeypatch) -> None:
             "default",
             [("000001", "平安银行"), ("000002", "万科A"), ("600519", "贵州茅台")],
         )
-        db.upsert_bars([_bar("000001", "2026-08-26"), _bar("600519", "2026-08-28")])
+        db.upsert_standard_bars([_bar("000001", "2026-08-26"), _bar("600519", "2026-08-28")])
 
     status = status_query("default")
     assert status["trade_date"] == "2026-08-28"
@@ -377,7 +357,7 @@ def test_status_before_session_open_uses_prior_trade_date(tmp_path, monkeypatch)
             "default",
             [("000001", "平安银行"), ("600519", "贵州茅台")],
         )
-        db.upsert_bars([_bar("000001", "2026-08-26"), _bar("600519", "2026-08-26")])
+        db.upsert_standard_bars([_bar("000001", "2026-08-26"), _bar("600519", "2026-08-26")])
 
     status = status_query("default")
     assert status["trade_date"] == "2026-08-26"

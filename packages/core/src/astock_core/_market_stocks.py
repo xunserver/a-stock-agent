@@ -5,12 +5,19 @@ from datetime import datetime
 
 from astock_core._market_base import _MarketBase, _preview_codes
 from astock_core.market_data import (
+    Classification,
     Instrument,
     InstrumentProfile,
+    Membership,
     QuoteSnapshot,
     ValuationSnapshot,
+    board_rows_from_classifications,
+    membership_codes,
+    membership_code_name_pairs,
+    normalize_board_taxonomy,
     to_legacy_symbol,
 )
+from astock_core.market_data.taxonomies import DEFAULT_BOARD_TAXONOMY
 from astock_core.paths import DEFAULT_ADJUST
 
 
@@ -278,15 +285,51 @@ class _MarketStocks(_MarketBase):
                 )
         return len(unique)
 
-    def list_boards(self, *, kind: str | None = None, source: str | None = "em") -> list[dict]:
+    def upsert_classifications(self, classifications: Sequence[Classification]) -> int:
+        """Project Classifications into the legacy boards table."""
+        return self.upsert_boards(board_rows_from_classifications(classifications))
+
+    def replace_classification_members(
+        self,
+        classification: Classification,
+        memberships: Sequence[Membership],
+        *,
+        allowed_codes: set[str] | None = None,
+    ) -> int:
+        """Replace board members for one Classification."""
+        codes = membership_codes(memberships)
+        if allowed_codes is not None:
+            codes = sorted(code for code in codes if code in allowed_codes)
+        return self.replace_board_members(classification.id, codes)
+
+    def replace_universe_memberships(
+        self,
+        universe: str,
+        memberships: Sequence[Membership],
+        *,
+        names: dict[str, str] | None = None,
+    ) -> int:
+        """Project Memberships into universe_members."""
+        return self.replace_universe(
+            universe,
+            membership_code_name_pairs(memberships, names=names),
+        )
+
+    def list_boards(
+        self,
+        *,
+        kind: str | None = None,
+        source: str | None = DEFAULT_BOARD_TAXONOMY,
+    ) -> list[dict]:
+        resolved = normalize_board_taxonomy(source)
         clauses: list[str] = []
         params: list[str] = []
         if kind:
             clauses.append("kind = ?")
             params.append(kind)
-        if source:
+        if resolved:
             clauses.append("source = ?")
-            params.append(source)
+            params.append(resolved)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.conn.execute(
             f"""
@@ -299,12 +342,18 @@ class _MarketStocks(_MarketBase):
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def boards_for_code(self, code: str, *, source: str | None = "em") -> list[dict]:
+    def boards_for_code(
+        self,
+        code: str,
+        *,
+        source: str | None = DEFAULT_BOARD_TAXONOMY,
+    ) -> list[dict]:
+        resolved = normalize_board_taxonomy(source)
         params: list[str] = [code.zfill(6)]
         source_clause = ""
-        if source:
+        if resolved:
             source_clause = "AND b.source = ?"
-            params.append(source)
+            params.append(resolved)
         rows = self.conn.execute(
             f"""
             SELECT b.id, b.kind, b.name, b.source, b.updated_at

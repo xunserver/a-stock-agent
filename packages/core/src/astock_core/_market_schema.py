@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS pool_members (
 );
 CREATE INDEX IF NOT EXISTS idx_pool_members_status ON pool_members (pool_id, status);
 CREATE TABLE IF NOT EXISTS boards (
-    id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'em',
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'eastmoney',
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_boards_kind ON boards (kind);
@@ -193,6 +193,22 @@ def _normalize_statement_payloads(connection: sqlite3.Connection) -> None:
         )
 
 
+def _normalize_board_taxonomy(connection: sqlite3.Connection) -> None:
+    """Rewrite legacy Eastmoney board source keys to canonical taxonomy values."""
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    if "boards" not in tables:
+        return
+    connection.execute(
+        "UPDATE boards SET source = ? WHERE source = ?",
+        ("eastmoney", "em"),
+    )
+
+
 def migrate_market(connection: sqlite3.Connection) -> None:
     """Upgrade a market database in place without changing domain data."""
     apply_migrations(
@@ -204,5 +220,6 @@ def migrate_market(connection: sqlite3.Connection) -> None:
             _add_trade_calendar_market,
             _add_pool_member_sort_order,
             _normalize_statement_payloads,
+            _normalize_board_taxonomy,
         ),
     )

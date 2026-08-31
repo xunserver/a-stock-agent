@@ -3,78 +3,52 @@ from __future__ import annotations
 import logging
 import time
 
-import pandas as pd
-
 from astock.config import request_sleep_seconds
-from astock.ingest import _call
+from astock.providers.protocols import ClassificationSource, MembershipSource
+from astock.providers.registry import resolve_capability
 from astock_core.db import MarketDB
+from astock_core.market_data import (
+    ClassificationKind,
+    ClassificationQuery,
+    EASTMONEY_TAXONOMY,
+    MembershipQuery,
+    validate_classification_dataset,
+    validate_membership_dataset,
+)
 
 logger = logging.getLogger(__name__)
 
-BOARD_SOURCE = "em"
-BOARD_KINDS = ("industry", "concept")
-
-
-def _normalize_code(raw: object) -> str | None:
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    digits = "".join(ch for ch in text if ch.isdigit())
-    if len(digits) < 6:
-        return None
-    return digits[-6:].zfill(6)
-
-
-def _codes_from_cons(frame: pd.DataFrame | None, allowed: set[str]) -> list[str]:
-    if frame is None or frame.empty or "代码" not in frame.columns:
-        return []
-    out: list[str] = []
-    for raw in frame["代码"]:
-        code = _normalize_code(raw)
-        if code and code in allowed:
-            out.append(code)
-    return out
-
-
-def _fetch_board_names(kind: str) -> pd.DataFrame:
-    import akshare as ak
-
-    if kind == "industry":
-        return _call(ak.stock_board_industry_name_em)
-    if kind == "concept":
-        return _call(ak.stock_board_concept_name_em)
-    raise ValueError(f"不支持的板块类型: {kind}")
-
-
-def _fetch_board_cons(kind: str, board_id: str) -> pd.DataFrame:
-    import akshare as ak
-
-    if kind == "industry":
-        return _call(ak.stock_board_industry_cons_em, symbol=board_id)
-    if kind == "concept":
-        return _call(ak.stock_board_concept_cons_em, symbol=board_id)
-    raise ValueError(f"不支持的板块类型: {kind}")
+BOARD_KINDS = (ClassificationKind.INDUSTRY, ClassificationKind.CONCEPT)
 
 
 def sync_boards(
     db: MarketDB,
     *,
-    kinds: tuple[str, ...] = BOARD_KINDS,
+    kinds: tuple[str | ClassificationKind, ...] = BOARD_KINDS,
     sleep: float | None = None,
     limit: int | None = None,
+    classification_source: ClassificationSource | None = None,
+    membership_source: MembershipSource | None = None,
 ) -> dict:
     """同步东财行业/概念板块；成员只保留系统 stocks 内代码。"""
     resolved_sleep = request_sleep_seconds() if sleep is None else sleep
-    selected = tuple(kind for kind in kinds if kind in BOARD_KINDS)
+    selected: list[ClassificationKind] = []
+    for kind in kinds:
+        resolved = ClassificationKind(kind) if isinstance(kind, str) else kind
+        if resolved in BOARD_KINDS:
+            selected.append(resolved)
     if not selected:
         raise ValueError("kinds 需要包含 industry 或 concept")
+
+    classifications = classification_source or resolve_capability("classifications")
+    memberships = membership_source or resolve_capability("memberships")
 
     allowed = set(db.stock_codes())
     if not allowed:
         logger.warning("系统内尚无股票，跳过板块成分写入（仍会更新板块名录）")
 
     stats = {
-        "kinds": list(selected),
+        "kinds": [kind.value for kind in selected],
         "system_stocks": len(allowed),
         "boards": 0,
         "members": 0,
@@ -83,51 +57,63 @@ def sync_boards(
     }
 
     for kind in selected:
-        logger.info("拉取东财%s板块名录", "行业" if kind == "industry" else "概念")
-        names = _fetch_board_names(kind)
-        if names is None or names.empty:
-            logger.warning("%s 板块名录为空", kind)
+        logger.info("拉取东财%s板块名录", "行业" if kind == ClassificationKind.INDUSTRY else "概念")
+        classification_query = ClassificationQuery(
+            kind=kind,
+            taxonomy=EASTMONEY_TAXONOMY,
+        )
+        catalog = validate_classification_dataset(
+            classifications.fetch_classifications(classification_query),
+            classification_query,
+        )
+        if not catalog.items:
+            logger.warning("%s 板块名录为空", kind.value)
             continue
-        if "板块代码" not in names.columns or "板块名称" not in names.columns:
-            raise RuntimeError(f"{kind} 板块名录缺少 板块代码/板块名称 列")
 
-        board_rows: list[tuple[str, str, str, str]] = []
-        board_ids: list[str] = []
-        for item in names.itertuples(index=False):
-            board_id = str(getattr(item, "板块代码") or "").strip()
-            board_name = str(getattr(item, "板块名称") or "").strip()
-            if not board_id or not board_name:
-                continue
-            board_rows.append((board_id, kind, board_name, BOARD_SOURCE))
-            board_ids.append(board_id)
+        board_rows = catalog.items
         if limit is not None:
             board_rows = board_rows[:limit]
-            board_ids = board_ids[:limit]
-        stats["boards"] += db.upsert_boards(board_rows)
-        logger.info("%s 板块名录写入 %s 个", kind, len(board_rows))
+        stats["boards"] += db.upsert_classifications(board_rows)
+        logger.info("%s 板块名录写入 %s 个", kind.value, len(board_rows))
 
-        total = len(board_ids)
-        for i, board_id in enumerate(board_ids, start=1):
+        total = len(board_rows)
+        for i, classification in enumerate(board_rows, start=1):
+            membership_query = MembershipQuery(
+                taxonomy=EASTMONEY_TAXONOMY,
+                classification_id=classification.id,
+                kind=kind,
+            )
             try:
-                cons = _fetch_board_cons(kind, board_id)
-                codes = _codes_from_cons(cons, allowed) if allowed else []
-                written = db.replace_board_members(board_id, codes)
+                dataset = validate_membership_dataset(
+                    memberships.fetch_memberships(membership_query),
+                    membership_query,
+                )
+                written = db.replace_classification_members(
+                    classification,
+                    dataset.items,
+                    allowed_codes=allowed if allowed else None,
+                )
                 stats["members"] += written
                 if written == 0:
                     stats["empty_boards"] += 1
                 if i % 20 == 0 or i == total:
                     logger.info(
                         "%s 进度 %s/%s  %s 本板系统内 %s 只  累计成员 %s",
-                        kind,
+                        kind.value,
                         i,
                         total,
-                        board_id,
+                        classification.id,
                         written,
                         stats["members"],
                     )
             except Exception as exc:
                 stats["error"] += 1
-                logger.warning("%s 板块 %s 成分失败: %s", kind, board_id, exc)
+                logger.warning(
+                    "%s 板块 %s 成分失败: %s",
+                    kind.value,
+                    classification.id,
+                    exc,
+                )
             time.sleep(resolved_sleep)
 
     return stats

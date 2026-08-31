@@ -5,17 +5,16 @@ from zoneinfo import ZoneInfo
 
 from astock.config import default_adjust, request_sleep_seconds
 from astock.financial import sync_financial_statements
-from astock.providers.defaults import (
-    default_fundamental_source,
-    default_stock_info_source,
-)
 from astock.providers.protocols import (
+    BarSource,
+    CalendarSource,
     FundamentalSource,
     InstrumentProfileSource,
     QuoteSnapshotSource,
     StatementSource,
     ValuationSource,
 )
+from astock.providers.registry import build_registry
 from astock.quotes import sync_quotes
 from astock_core.db import MarketDB
 from astock_core.market_data import (
@@ -48,16 +47,20 @@ def sync_stock_info(
     statement_source: StatementSource | None = None,
 ) -> dict[str, int]:
     resolved_sleep = request_sleep_seconds() if sleep is None else sleep
-    if profile_source is None and snapshot_source is None and valuation_source is None:
-        adapter = default_stock_info_source(pause=resolved_sleep)
-        profile_source = snapshot_source = valuation_source = adapter
-    else:
-        adapter = default_stock_info_source(pause=resolved_sleep)
-        profile_source = profile_source or adapter
-        snapshot_source = snapshot_source or adapter
-        valuation_source = valuation_source or adapter
-    if fundamental_source is None:
-        fundamental_source = default_fundamental_source()
+    if any(
+        source is None
+        for source in (
+            profile_source,
+            snapshot_source,
+            valuation_source,
+            fundamental_source,
+        )
+    ):
+        registry = build_registry(pause=resolved_sleep)
+        profile_source = profile_source or registry.profile_source()
+        snapshot_source = snapshot_source or registry.quote_snapshot_source()
+        valuation_source = valuation_source or registry.valuation_source()
+        fundamental_source = fundamental_source or registry.fundamental_source()
 
     wanted = [code.zfill(6) for code in codes if str(code).strip()]
     if not wanted:
@@ -337,6 +340,13 @@ def sync_stock(
     do_quotes: bool = True,
     sleep: float | None = None,
     with_statements: bool = False,
+    profile_source: InstrumentProfileSource | None = None,
+    snapshot_source: QuoteSnapshotSource | None = None,
+    valuation_source: ValuationSource | None = None,
+    fundamental_source: FundamentalSource | None = None,
+    statement_source: StatementSource | None = None,
+    bar_source: BarSource | None = None,
+    calendar_source: CalendarSource | None = None,
 ) -> dict:
     resolved_sleep = request_sleep_seconds() if sleep is None else sleep
     result: dict = {"codes": len(codes), "pool": pool_id}
@@ -347,6 +357,11 @@ def sync_stock(
                 codes,
                 sleep=resolved_sleep,
                 with_statements=with_statements,
+                profile_source=profile_source,
+                snapshot_source=snapshot_source,
+                valuation_source=valuation_source,
+                fundamental_source=fundamental_source,
+                statement_source=statement_source,
             )
         )
     if do_quotes:
@@ -356,6 +371,8 @@ def sync_stock(
                 pool_id=pool_id,
                 codes=codes,
                 sleep=resolved_sleep,
+                bar_source=bar_source,
+                calendar_source=calendar_source,
             )
         )
     return result

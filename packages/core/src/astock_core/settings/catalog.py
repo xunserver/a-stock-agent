@@ -4,7 +4,7 @@ from typing import Any
 
 from astock_core.paths import ANALYZE_DIR, DATA_DIR, DB_PATH, DEFAULT_ADJUST, DEFAULT_POOL_ID, QLIB_DIR, system_db_path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 INGEST_QUOTES_KEYS = (
     "pool",
@@ -21,6 +21,20 @@ INGEST_INDEXES_KEYS = (
     "hs300_index_code",
     "major_indexes",
     "aliases",
+)
+INGEST_SOURCES_KEYS = (
+    "schema_version",
+    "instruments",
+    "calendar",
+    "bars",
+    "quote_snapshots",
+    "valuations",
+    "fundamentals",
+    "statements",
+    "classifications",
+    "memberships",
+    "news",
+    "events",
 )
 ANALYZE_LLM_KEYS = (
     "llm_provider",
@@ -54,6 +68,71 @@ DEFAULT_INDEX_ALIASES = {
     "kc50": "000688",
     "cyb": "399006",
 }
+DEFAULT_SOURCE_ORDER = {
+    "schema_version": 1,
+    "bars": ["eastmoney", "akshare"],
+    "calendar": ["akshare"],
+    "instruments": ["akshare"],
+    "quote_snapshots": ["eastmoney", "akshare"],
+    "valuations": ["eastmoney", "akshare"],
+    "fundamentals": ["akshare"],
+    "statements": ["akshare"],
+    "classifications": ["akshare"],
+    "memberships": ["akshare"],
+    "news": ["akshare"],
+    "events": ["akshare"],
+}
+_SOURCE_ENUM = ["eastmoney", "akshare"]
+
+
+def _source_order_property(title: str) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "title": title,
+        "minItems": 1,
+        "uniqueItems": True,
+        "items": {"type": "string", "enum": list(_SOURCE_ENUM)},
+    }
+
+
+def ingest_sources_defaults() -> dict[str, Any]:
+    return {
+        key: list(value) if isinstance(value, list) else value
+        for key, value in DEFAULT_SOURCE_ORDER.items()
+    }
+
+
+def ingest_sources_schema() -> dict[str, Any]:
+    properties = {
+        "schema_version": {
+            "type": "integer",
+            "title": "Schema 版本",
+            "minimum": 1,
+            "maximum": 1,
+        },
+    }
+    titles = {
+        "instruments": "标的目录",
+        "calendar": "交易日历",
+        "bars": "K 线",
+        "quote_snapshots": "行情快照",
+        "valuations": "估值快照",
+        "fundamentals": "财务摘要",
+        "statements": "财务报表",
+        "classifications": "分类目录",
+        "memberships": "成分关系",
+        "news": "新闻",
+        "events": "事件",
+    }
+    for key, title in titles.items():
+        properties[key] = _source_order_property(title)
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(INGEST_SOURCES_KEYS),
+        "properties": properties,
+    }
 
 
 def live_paths() -> dict[str, str]:
@@ -276,6 +355,14 @@ def settings_catalog() -> list[dict[str, Any]]:
                             },
                         },
                     },
+                ),
+                _section(
+                    section_id="sources",
+                    title="数据源",
+                    description="按能力配置数据源优先级。前面的源失败后按错误类型自动回退。",
+                    sort_order=17,
+                    defaults=ingest_sources_defaults(),
+                    schema=ingest_sources_schema(),
                 ),
                 _section(
                     section_id="schedule",

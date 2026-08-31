@@ -177,6 +177,10 @@ def test_pending_contracts_are_named_and_not_passing() -> None:
     assert "valuations" not in PENDING_CAPABILITY_CONTRACTS
     assert "fundamentals" not in PENDING_CAPABILITY_CONTRACTS
     assert "statements" not in PENDING_CAPABILITY_CONTRACTS
+    assert "classifications" not in PENDING_CAPABILITY_CONTRACTS
+    assert "memberships" not in PENDING_CAPABILITY_CONTRACTS
+    assert "news" not in PENDING_CAPABILITY_CONTRACTS
+    assert "events" not in PENDING_CAPABILITY_CONTRACTS
     for capability in PENDING_CAPABILITY_CONTRACTS:
         with pytest.raises(NotImplementedError, match="do not mark this capability as passing"):
             unimplemented_capability_contract(capability)

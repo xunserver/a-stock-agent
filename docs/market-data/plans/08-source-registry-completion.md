@@ -1,6 +1,6 @@
 # Plan 08: Source Registry and Migration Completion
 
-Status: not started
+Status: complete
 
 ## Objective
 
@@ -138,13 +138,137 @@ rg -n "TODO.*Plan 08|remove.*Plan 08|compatibility facade" \
 
 ## Handoff
 
-Replace this section with the final migration report containing:
+Completed 2026-08-31. Inherited baseline before edits: `pnpm check` passed with **250** core/control-plane tests, **140** ingest, **19** analyze, **8** qlib, **51** UI, plus architecture and typecheck.
 
-- source registry defaults and configuration path;
-- fallback behavior summary;
-- direct-call search output summary;
-- architecture rules added;
-- compatibility code removed;
-- evidence table for specification section 21;
-- exact `pnpm check` result;
-- any intentionally deferred work, which must be outside specification v1.
+### Source registry defaults and configuration path
+
+- Settings section: `ingest.sources` in `system.db` (seeded by `packages/core/src/astock_core/settings/catalog.py`, `SCHEMA_VERSION=3`).
+- Runtime read: `astock.config.sources_settings()` → `validate_source_order_config()` in `tools/ingest/src/astock/providers/registry.py`.
+- Registry construction: `build_registry()` / `CapabilityRegistry.from_settings()` in `tools/ingest/src/astock/providers/registry.py`.
+- Default source order (spec section 16):
+
+```json
+{
+  "schema_version": 1,
+  "bars": ["eastmoney", "akshare"],
+  "calendar": ["akshare"],
+  "instruments": ["akshare"],
+  "quote_snapshots": ["eastmoney", "akshare"],
+  "valuations": ["eastmoney", "akshare"],
+  "fundamentals": ["akshare"],
+  "statements": ["akshare"],
+  "classifications": ["akshare"],
+  "memberships": ["akshare"],
+  "news": ["akshare"],
+  "events": ["akshare"]
+}
+```
+
+Validation fails fast on unknown sources, unknown capability keys, missing required capabilities, duplicate sources per capability, and empty source order (`tools/ingest/tests/providers/test_registry.py`).
+Runtime validation also rejects unsupported `schema_version` values; settings-schema tests cover invalid source/capability patches and preserve configured order.
+
+### Fallback behavior summary
+
+- Module: `tools/ingest/src/astock/providers/fallback.py`.
+- Follows spec section 9 error table via `should_try_next_source()`.
+- `NoData` stops by default (`_NO_DATA_FALLBACK_CAPABILITIES` empty).
+- Successful empty `Dataset` stops fallback; selected `Dataset.source` is preserved (never reports registry/fallback wrapper).
+- Authentication failures advance to the next source without same-source retry.
+- A policy stop such as default `NoData` re-raises the original typed error without touching the next source. True exhaustion raises `FallbackExhausted` with categorized attempt summaries and secret-stripped messages.
+- Tests: `tools/ingest/tests/providers/test_fallback.py` (first success, retryable failure, unsupported query, empty dataset, NoData policy, auth failure, invalid payload, exhaustion).
+
+### Observability
+
+- Module: `tools/ingest/src/astock/providers/observability.py`.
+- Logger: `astock.providers.market_data`.
+- JSON log fields: `capability`, `source`, `query_identity`, `attempt`, `elapsed_ms`, `item_count`, `coverage_start`, `coverage_end`, `complete`, `warning_count`, `error_category`, `outcome`.
+- Large instrument lists truncated; `redact_message()` masks api_key/token/cookie/password patterns.
+- Tests: `tools/ingest/tests/providers/test_observability.py`.
+
+### Composition roots changed
+
+| Location | Change |
+|---|---|
+| `tools/ingest/src/astock/cli/handlers.py` | Builds one registry and injects sources for news/events, index pool/stock operations, stock sync, boards, calendar, and quotes |
+| `tools/ingest/src/astock/providers/registry.py` | `resolve_capability(key)` supports explicit registry-backed direct library/debug calls |
+| `tools/ingest/src/astock/config.py` | `sources_settings()` reads validated `ingest.sources` |
+| Use cases (`ingest.py`, `quotes.py`, `stock.py`, `boards.py`, `news.py`, `events.py`, `financial.py`, `indexes.py`) | Keep injectable public signatures; `None` sources resolve by capability key, never a concrete/default Adapter helper |
+
+`StockInfoComposite` (Eastmoney primary + AKShare ST/suspend overlay) is built inside the registry when both sources appear in `quote_snapshots` order.
+
+### Direct-call search output summary
+
+```bash
+rg -n "import akshare|from akshare|ak\.|push2(his)?\.eastmoney|stock_zh_|tool_trade_date" \
+  tools/ingest/src apps/control-plane/core/src packages/core/src tools/analyze/src tools/qlib/src
+```
+
+All matches are under `tools/ingest/src/astock/providers/{akshare,eastmoney}/` only (Adapter implementation). Zero matches in control-plane, core, analyze, qlib production code.
+
+```bash
+rg -n "TODO.*Plan 08|remove.*Plan 08|compatibility facade" \
+  tools/ingest/src apps/control-plane/core/src packages/core/src
+```
+
+No matches (exit code 1).
+
+### Architecture rules added
+
+`scripts/check-architecture.sh` now rejects outside the approved source Adapter directories (`providers/akshare/**`, `providers/eastmoney/**`) and tests:
+
+- `import akshare` / `from akshare` / `ak.stock_*` / `ak.tool_*` / `ak.index_*`
+- `push2` / `push2his` Eastmoney hosts
+- `stock_zh_*` / `tool_trade_date`
+- common AKShare board/financial/news function prefixes
+- source transport imports such as `curl_cffi`
+
+It also rejects pandas/AKShare/curl-cffi/ingest imports inside `packages/core/src/astock_core/market_data`.
+
+Probe test proves detection: `tools/ingest/tests/test_architecture_market_data.py` (temporary `_architecture_violation_probe.py` created then removed).
+
+### Compatibility code removed
+
+- `providers/defaults.py`, `DefaultStockInfoAdapter`, and all per-capability default helper façades (replaced by registry composition + `StockInfoComposite`).
+- Legacy `astock/eastmoney.py`; the `curl_cffi` transport now lives inside `providers/eastmoney/_transport.py`.
+- Public tuple writers `MarketDB.upsert_bars` / `upsert_index_bars` (`packages/core/src/astock_core/_market_bars.py`); tests migrated to `upsert_standard_bars` / `upsert_standard_index_bars`.
+- Plan 08 removal markers in production Python (verified by search above).
+
+### Specification section 21 evidence
+
+| # | Criterion | Evidence |
+|---|---|---|
+| 1 | External market-data calls only in Adapters | Direct-call `rg` output: matches only under `tools/ingest/src/astock/providers/` |
+| 2 | No sync/repo/control-plane/Qlib/UI imports vendor clients or source payloads | vendor-import/source-call search has no non-Adapter matches; Qlib's own pandas frames are not source payloads; `packages/core/tests/market_data/test_no_vendor_surface.py` |
+| 3 | Every capability returns validated `Dataset` | Plans 02–07 contract suites; registry wraps existing Adapters without bypassing validation |
+| 4 | CLI/HTTP/UI/Qlib behavior compatible | `pnpm check` green; ingest/control-plane/UI/qlib test suites unchanged in public contracts |
+| 5 | Per-capability source order + fallback | `ingest.sources` settings + `fallback.py` + `test_registry.py` / `test_fallback.py` |
+| 6 | Scheduler/manual sync share Calendar interface | Plan 03 scheduler path and CLI manual sync both resolve the registry-backed `CalendarSource` |
+| 7 | Statement read models free of Eastmoney field IDs | Plan 05 handoff; `statement_items_v1` canonical codes |
+| 8 | Every Adapter passes contract suite | `tools/ingest/tests/providers/test_*_contract.py` and adapter tests in full ingest suite |
+| 9 | Architecture checks reject new direct calls | `scripts/check-architecture.sh` + `test_architecture_market_data.py` |
+| 10 | `pnpm check` passes | See below |
+
+### Exact `pnpm check` result
+
+```text
+pnpm check
+# architecture: passed
+# UI: 51 passed
+# typecheck: passed
+# python:
+#   core+control-plane: 250 passed
+#   cli: 1 passed
+#   ingest: 174 passed
+#   analyze: 19 passed
+#   qlib: 8 passed
+```
+
+Targeted first: `pytest tests/providers/test_registry.py tests/providers/test_fallback.py tests/providers/test_observability.py tests/test_architecture_market_data.py` → 29 passed.
+
+### Intentionally deferred (outside spec v1)
+
+- News/events persistence (Plan 07 note; real-time response only).
+- Historical membership effective dates (no trustworthy source dates).
+- Intraday bars, streaming, new Data Sources beyond `eastmoney`/`akshare`.
+- `InstrumentProfile` as a separate settings capability key (profiles follow `quote_snapshots` registry path + overlay).
+- Field-level provenance beyond Dataset warnings.

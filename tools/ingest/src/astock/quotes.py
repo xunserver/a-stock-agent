@@ -4,7 +4,7 @@ import logging
 
 from astock.config import default_adjust, history_start, quote_periods, request_sleep_seconds
 from astock.ingest import ingest_bars, ingest_calendar
-from astock.providers.defaults import default_bar_source, default_calendar_source
+from astock.providers.registry import resolve_capability
 from astock.providers.protocols import BarSource, CalendarSource
 from astock_core.db import INGEST_KINDS, MarketDB
 from astock_core.paths import DEFAULT_POOL_ID
@@ -51,8 +51,8 @@ def sync_quotes(
     calendar_source: CalendarSource | None = None,
 ) -> dict:
     """盘后行情：指定代码或活跃池内，新票拉全历史，其余只补缺口；日/周/月线一并补齐。"""
-    resolved_bars = bar_source or default_bar_source()
-    resolved_calendar = calendar_source or default_calendar_source()
+    resolved_bars = bar_source or resolve_capability("bars")
+    resolved_calendar = calendar_source or resolve_capability("calendar")
     calendar = (
         ingest_calendar(db, calendar_source=resolved_calendar) if refresh_calendar else 0
     )

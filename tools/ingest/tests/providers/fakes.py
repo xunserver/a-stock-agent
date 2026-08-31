@@ -11,18 +11,34 @@ from astock_core.market_data import (
     BarInterval,
     BarQuery,
     CalendarQuery,
+    Classification,
+    ClassificationKind,
+    ClassificationQuery,
+    CSINDEX_TAXONOMY,
+    BlockTradeEvent,
     Dataset,
+    EASTMONEY_TAXONOMY,
+    EventKind,
+    EventQuery,
     FinancialPeriodType,
     FinancialSheet,
     FinancialStatement,
     FundamentalPeriod,
     FundamentalQuery,
+    HolderChangeEvent,
     Instrument,
     InstrumentId,
     InstrumentNotFound,
     InstrumentProfile,
     InstrumentQuery,
+    MarketEvent,
+    Membership,
+    MembershipQuery,
+    NewsItem,
+    NewsQuery,
+    NoticeEvent,
     QuoteSnapshot,
+    ResearchReportEvent,
     SnapshotQuery,
     StatementQuery,
     TradingDay,
@@ -30,6 +46,9 @@ from astock_core.market_data import (
     ValuationQuery,
     ValuationSnapshot,
     from_legacy_symbol,
+    validate_membership_dataset,
+    validate_news_dataset,
+    validate_event_dataset,
 )
 
 
@@ -505,3 +524,171 @@ class InMemoryStatementSource:
             coverage_start=query.start,
             coverage_end=query.end,
         )
+
+
+class InMemoryClassificationSource:
+    def __init__(
+        self,
+        classifications: tuple[Classification, ...] = (),
+        *,
+        source: str = "memory",
+        fetched_at: datetime | None = None,
+    ) -> None:
+        self._classifications = classifications
+        self._source = source
+        self._fetched_at = fetched_at or aware_now()
+
+    def fetch_classifications(self, query: ClassificationQuery) -> Dataset[Classification]:
+        items = tuple(
+            sorted(
+                (
+                    item
+                    for item in self._classifications
+                    if (query.kind is None or item.kind == query.kind)
+                    and (query.taxonomy is None or item.taxonomy == query.taxonomy)
+                    and (not query.ids or item.id in query.ids)
+                ),
+                key=lambda item: (item.taxonomy, item.kind.value, item.id),
+            )
+        )
+        return Dataset(
+            items=items,
+            source=self._source,
+            fetched_at=self._fetched_at,
+            complete=True,
+        )
+
+
+class InMemoryMembershipSource:
+    def __init__(
+        self,
+        memberships: tuple[Membership, ...] = (),
+        *,
+        board_kinds: dict[str, ClassificationKind] | None = None,
+        names: dict[str, str] | None = None,
+        source: str = "memory",
+        fetched_at: datetime | None = None,
+    ) -> None:
+        self._memberships = memberships
+        self._board_kinds = dict(board_kinds or {})
+        self._names = dict(names or {})
+        self._source = source
+        self._fetched_at = fetched_at or aware_now()
+        self._display_names: dict[str, str] = {}
+
+    def set_board_kind(self, board_id: str, kind: ClassificationKind) -> None:
+        self._board_kinds[board_id] = kind
+
+    def display_names(self) -> dict[str, str]:
+        return dict(self._display_names)
+
+    def fetch_memberships(self, query: MembershipQuery) -> Dataset[Membership]:
+        if query.taxonomy == EASTMONEY_TAXONOMY and query.classification_id:
+            if query.classification_id not in self._board_kinds:
+                raise UnsupportedQuery("eastmoney board memberships require board kind")
+        self._display_names = {}
+        items = []
+        for item in self._memberships:
+            if query.taxonomy is not None and item.taxonomy != query.taxonomy:
+                continue
+            if (
+                query.classification_id is not None
+                and item.classification_id != query.classification_id
+            ):
+                continue
+            if query.instrument_id is not None and item.instrument_id != query.instrument_id:
+                continue
+            code = item.instrument_id.symbol
+            self._display_names[code] = self._names.get(code, code)
+            items.append(item)
+        ordered = tuple(
+            sorted(
+                items,
+                key=lambda row: (
+                    row.taxonomy,
+                    row.classification_id,
+                    row.instrument_id.value,
+                    row.effective_from.isoformat() if row.effective_from else "",
+                ),
+            )
+        )
+        dataset = Dataset(
+            items=ordered,
+            source=self._source,
+            fetched_at=self._fetched_at,
+            complete=True,
+        )
+        return validate_membership_dataset(dataset, query)
+
+
+class InMemoryNewsSource:
+    def __init__(
+        self,
+        items: tuple[NewsItem, ...] = (),
+        *,
+        source: str = "memory",
+        fetched_at: datetime | None = None,
+    ) -> None:
+        self._items = items
+        self._source = source
+        self._fetched_at = fetched_at or aware_now()
+
+    def fetch_news(self, query: NewsQuery) -> Dataset[NewsItem]:
+        selected = tuple(
+            sorted(
+                (
+                    item
+                    for item in self._items
+                    if item.instrument_id in query.instruments
+                    and (query.start is None or item.published_at >= query.start)
+                    and (query.end is None or item.published_at <= query.end)
+                ),
+                key=lambda item: (item.published_at, item.id),
+            )
+        )
+        if query.limit is not None:
+            selected = selected[-query.limit :] if query.limit else ()
+        dataset = Dataset(
+            items=selected,
+            source=self._source,
+            fetched_at=self._fetched_at,
+            complete=True,
+        )
+        return validate_news_dataset(dataset, query)
+
+
+class InMemoryEventSource:
+    def __init__(
+        self,
+        items: tuple[MarketEvent, ...] = (),
+        *,
+        source: str = "memory",
+        fetched_at: datetime | None = None,
+    ) -> None:
+        self._items = items
+        self._source = source
+        self._fetched_at = fetched_at or aware_now()
+
+    def fetch_events(self, query: EventQuery) -> Dataset[MarketEvent]:
+        selected = tuple(
+            sorted(
+                (
+                    item
+                    for item in self._items
+                    if item.instrument_id in query.instruments
+                    and (not query.kinds or item.kind in query.kinds)
+                    and (query.start is None or item.published_at >= query.start)
+                    and (query.end is None or item.published_at <= query.end)
+                ),
+                key=lambda item: (item.published_at, item.kind.value, item.id),
+            )
+        )
+        if query.limit is not None:
+            selected = selected[-query.limit :] if query.limit else ()
+        dataset = Dataset(
+            items=selected,
+            source=self._source,
+            fetched_at=self._fetched_at,
+            complete=True,
+        )
+        return validate_event_dataset(dataset, query)

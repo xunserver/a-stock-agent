@@ -178,6 +178,7 @@ class ClassificationQuery:
 class MembershipQuery:
     taxonomy: str | None = None
     classification_id: str | None = None
+    kind: ClassificationKind | None = None
     instrument_id: InstrumentId | None = None
     as_of: date | None = None
 

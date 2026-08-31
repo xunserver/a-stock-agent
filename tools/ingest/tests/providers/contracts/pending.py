@@ -1,17 +1,8 @@
-"""Named placeholders for capability contracts implemented in later plans.
-
-These names exist so later Agents extend a known list. They must not be treated
-as passing contracts.
-"""
+"""Named placeholders for capability contracts implemented in later plans."""
 
 from __future__ import annotations
 
-PENDING_CAPABILITY_CONTRACTS: dict[str, str] = {
-    "classifications": "06-classifications-memberships",
-    "memberships": "06-classifications-memberships",
-    "news": "07-news-events",
-    "events": "07-news-events",
-}
+PENDING_CAPABILITY_CONTRACTS: dict[str, str] = {}
 
 
 def unimplemented_capability_contract(capability: str) -> None:

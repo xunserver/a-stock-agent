@@ -15,11 +15,20 @@ from astock_core.market_data.dataset import Dataset
 from astock_core.market_data.errors import InvalidSourcePayload
 from astock_core.market_data.models import (
     Bar,
+    BlockTradeEvent,
+    Classification,
     FinancialStatement,
     FundamentalPeriod,
+    HolderChangeEvent,
     Instrument,
     InstrumentProfile,
+    MARKET_EVENT_TYPES,
+    MarketEvent,
+    Membership,
+    NewsItem,
+    NoticeEvent,
     QuoteSnapshot,
+    ResearchReportEvent,
     StatementItem,
     TradingDay,
     ValuationSnapshot,
@@ -27,8 +36,12 @@ from astock_core.market_data.models import (
 from astock_core.market_data.queries import (
     BarQuery,
     CalendarQuery,
+    ClassificationQuery,
+    EventQuery,
     FundamentalQuery,
     InstrumentQuery,
+    MembershipQuery,
+    NewsQuery,
     SnapshotQuery,
     StatementQuery,
     ValuationQuery,
@@ -579,4 +592,241 @@ def validate_statement_dataset(
         ),
         label="FinancialStatement",
     )
+    return dataset
+
+
+def validate_classification(classification: Classification) -> Classification:
+    reject_vendor_types(classification, field="classification")
+    return classification
+
+
+def _classification_sort_key(item: Classification) -> tuple[str, str, str]:
+    return (item.taxonomy, item.kind.value, item.id)
+
+
+def validate_classification_dataset(
+    dataset: Dataset[Classification],
+    query: ClassificationQuery,
+) -> Dataset[Classification]:
+    for index, item in enumerate(dataset.items):
+        try:
+            validate_classification(item)
+        except (ValueError, InvalidSourcePayload) as exc:
+            raise InvalidSourcePayload(
+                f"invalid Classification at index {index}: {exc}"
+            ) from exc
+        if query.kind is not None and item.kind != query.kind:
+            raise InvalidSourcePayload(
+                f"invalid Classification at index {index}: kind {item.kind.value} "
+                f"does not match query kind {query.kind.value}"
+            )
+        if query.taxonomy is not None and item.taxonomy != query.taxonomy:
+            raise InvalidSourcePayload(
+                f"invalid Classification at index {index}: taxonomy {item.taxonomy!r} "
+                f"does not match query taxonomy {query.taxonomy!r}"
+            )
+        if query.ids and item.id not in query.ids:
+            raise InvalidSourcePayload(
+                f"invalid Classification at index {index}: id {item.id!r} "
+                f"is outside query ids"
+            )
+    validate_unique_natural_keys(
+        dataset.items,
+        natural_key=lambda item: item.natural_key,
+        label="Classification",
+    )
+    validate_sorted(
+        dataset.items,
+        sort_key=_classification_sort_key,
+        label="Classification",
+    )
+    return dataset
+
+
+def validate_membership(membership: Membership) -> Membership:
+    reject_vendor_types(membership, field="membership")
+    if membership.weight_pct is not None:
+        require_finite(membership.weight_pct, field="weight_pct")
+    if (
+        membership.effective_from is not None
+        and membership.effective_to is not None
+        and membership.effective_to < membership.effective_from
+    ):
+        raise InvalidSourcePayload(
+            "Membership.effective_to must be on or after effective_from"
+        )
+    return membership
+
+
+def _membership_sort_key(item: Membership) -> tuple[str, str, str, str]:
+    return (
+        item.taxonomy,
+        item.classification_id,
+        item.instrument_id.value,
+        item.effective_from.isoformat() if item.effective_from else "",
+    )
+
+
+def validate_membership_dataset(
+    dataset: Dataset[Membership],
+    query: MembershipQuery,
+) -> Dataset[Membership]:
+    from astock_core.market_data.membership_temporal import reject_undated_as_of_query
+
+    for index, item in enumerate(dataset.items):
+        try:
+            validate_membership(item)
+        except (ValueError, InvalidSourcePayload) as exc:
+            raise InvalidSourcePayload(
+                f"invalid Membership at index {index}: {exc}"
+            ) from exc
+        if query.taxonomy is not None and item.taxonomy != query.taxonomy:
+            raise InvalidSourcePayload(
+                f"invalid Membership at index {index}: taxonomy {item.taxonomy!r} "
+                f"does not match query taxonomy {query.taxonomy!r}"
+            )
+        if (
+            query.classification_id is not None
+            and item.classification_id != query.classification_id
+        ):
+            raise InvalidSourcePayload(
+                f"invalid Membership at index {index}: classification_id "
+                f"{item.classification_id!r} does not match query "
+                f"{query.classification_id!r}"
+            )
+        if (
+            query.instrument_id is not None
+            and item.instrument_id != query.instrument_id
+        ):
+            raise InvalidSourcePayload(
+                f"invalid Membership at index {index}: instrument_id "
+                f"{item.instrument_id.value} does not match query "
+                f"{query.instrument_id.value}"
+            )
+    reject_undated_as_of_query(query, dataset.items)
+    validate_unique_natural_keys(
+        dataset.items,
+        natural_key=lambda item: item.natural_key,
+        label="Membership",
+    )
+    validate_sorted(
+        dataset.items,
+        sort_key=_membership_sort_key,
+        label="Membership",
+    )
+    return dataset
+
+
+def validate_news_item(item: NewsItem) -> NewsItem:
+    if not isinstance(item, NewsItem):
+        raise InvalidSourcePayload(f"expected NewsItem, got {type(item).__name__}")
+    reject_vendor_types(item, field="news_item")
+    require_aware_datetime(item.published_at, field="published_at")
+    return item
+
+
+def _news_sort_key(item: NewsItem) -> tuple[str, datetime, str]:
+    return (item.instrument_id.value, item.published_at, item.id)
+
+
+def _news_agrees_with_query(item: NewsItem, query: NewsQuery) -> None:
+    if item.instrument_id not in query.instruments:
+        raise InvalidSourcePayload(
+            f"NewsItem {item.natural_key!r} instrument is not in the query"
+        )
+    if query.start is not None and item.published_at < query.start:
+        raise InvalidSourcePayload(
+            f"NewsItem published_at {item.published_at} is before query start {query.start}"
+        )
+    if query.end is not None and item.published_at > query.end:
+        raise InvalidSourcePayload(
+            f"NewsItem published_at {item.published_at} is after query end {query.end}"
+        )
+
+
+def validate_news_dataset(dataset: Dataset[NewsItem], query: NewsQuery) -> Dataset[NewsItem]:
+    reject_vendor_types(dataset, field="dataset")
+    require_aware_datetime(dataset.fetched_at, field="fetched_at")
+    for index, item in enumerate(dataset.items):
+        try:
+            validate_news_item(item)
+            _news_agrees_with_query(item, query)
+        except InvalidSourcePayload as exc:
+            raise InvalidSourcePayload(f"invalid NewsItem at index {index}: {exc}") from exc
+    validate_unique_natural_keys(
+        dataset.items, natural_key=lambda item: item.natural_key, label="NewsItem"
+    )
+    validate_sorted(dataset.items, sort_key=_news_sort_key, label="NewsItem")
+    return dataset
+
+
+def validate_market_event(event: MarketEvent) -> MarketEvent:
+    if not isinstance(event, MARKET_EVENT_TYPES):
+        raise InvalidSourcePayload(
+            f"expected MarketEvent variant, got {type(event).__name__}"
+        )
+    reject_vendor_types(event, field="market_event")
+    require_aware_datetime(event.published_at, field="published_at")
+    if isinstance(event, BlockTradeEvent):
+        require_optional_finite(event.deal_price, field="deal_price")
+        require_optional_finite(event.volume, field="volume")
+        require_optional_finite(event.amount, field="amount")
+        require_optional_finite(event.premium_pct, field="premium_pct")
+        require_optional_finite(event.close_price, field="close_price")
+        require_optional_finite(event.pct_change, field="pct_change")
+        if event.volume is not None:
+            require_non_negative(event.volume, field="volume")
+        if event.amount is not None:
+            require_non_negative(event.amount, field="amount")
+    elif isinstance(event, HolderChangeEvent):
+        require_optional_finite(event.change_shares, field="change_shares")
+        require_optional_finite(event.average_price, field="average_price")
+        if event.average_price is not None:
+            require_non_negative(event.average_price, field="average_price")
+    return event
+
+
+def _event_sort_key(event: MarketEvent) -> tuple[str, datetime, str, str]:
+    return (
+        event.instrument_id.value,
+        event.published_at,
+        event.kind.value,
+        event.id,
+    )
+
+
+def _event_agrees_with_query(event: MarketEvent, query: EventQuery) -> None:
+    if event.instrument_id not in query.instruments:
+        raise InvalidSourcePayload(
+            f"MarketEvent {event.id!r} instrument is not in the query"
+        )
+    if query.kinds and event.kind not in query.kinds:
+        raise InvalidSourcePayload(
+            f"MarketEvent kind {event.kind.value} is not in the query"
+        )
+    if query.start is not None and event.published_at < query.start:
+        raise InvalidSourcePayload(
+            f"MarketEvent published_at {event.published_at} is before query start {query.start}"
+        )
+    if query.end is not None and event.published_at > query.end:
+        raise InvalidSourcePayload(
+            f"MarketEvent published_at {event.published_at} is after query end {query.end}"
+        )
+
+
+def validate_event_dataset(
+    dataset: Dataset[MarketEvent], query: EventQuery
+) -> Dataset[MarketEvent]:
+    reject_vendor_types(dataset, field="dataset")
+    require_aware_datetime(dataset.fetched_at, field="fetched_at")
+    for index, item in enumerate(dataset.items):
+        try:
+            validate_market_event(item)
+            _event_agrees_with_query(item, query)
+        except InvalidSourcePayload as exc:
+            raise InvalidSourcePayload(f"invalid MarketEvent at index {index}: {exc}") from exc
+    validate_unique_natural_keys(
+        dataset.items, natural_key=lambda item: item.natural_key, label="MarketEvent"
+    )
+    validate_sorted(dataset.items, sort_key=_event_sort_key, label="MarketEvent")
     return dataset

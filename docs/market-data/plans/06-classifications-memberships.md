@@ -1,6 +1,6 @@
 # Plan 06: Classifications and Memberships
 
-Status: not started
+Status: complete
 
 ## Objective
 
@@ -102,10 +102,97 @@ pnpm run check:architecture
 
 ## Handoff
 
-Record:
+Completed 2026-08-31. Industry/concept boards and index constituents now flow through `ClassificationSource` / `MembershipSource`. Board reads default to the canonical eastmoney taxonomy; legacy `em` rows migrate in place.
 
-- taxonomy keys and identity format;
-- persistence/read default policy after removing implicit `em` filtering;
-- historical-safety behavior;
-- removed duplicate functions;
-- verification outcomes.
+### Taxonomy keys and identity format
+
+| Taxonomy key | Kind | Classification `id` | Example natural key |
+|---|---|---|---|
+| `eastmoney` | `industry`, `concept` | Eastmoney board code | `("eastmoney", "BK1027")` |
+| `csindex` | `index` | Six-digit index symbol | `("csindex", "000300")` |
+
+Membership natural key: `(taxonomy, classification_id, instrument_id, effective_from)`. Current AKShare snapshots omit `effective_from`.
+
+Helpers: `classification_identity(taxonomy, id)`, `EASTMONEY_TAXONOMY`, `CSINDEX_TAXONOMY`, `DEFAULT_BOARD_TAXONOMY`.
+
+### Persistence/read default policy
+
+- `boards.source` stores taxonomy keys (`eastmoney`, not `em`). Migration **6** rewrites legacy `em` values.
+- `list_boards` / `boards_for_code` default `source=DEFAULT_BOARD_TAXONOMY` (`eastmoney`). Pass `source=None` to read all taxonomies; `normalize_board_taxonomy` maps legacy `em` on read.
+- Writers: `upsert_classifications`, `replace_classification_members`, `replace_universe_memberships` project Standard Records into `boards`, `board_members`, `universe_members`.
+- Pool provenance remains `index:{symbol}`; universe key remains `hs300`.
+
+### Historical-safety behavior
+
+```python
+from astock_core.market_data import (
+    is_historically_safe,
+    historically_safe_memberships,
+    memberships_effective_on,
+    reject_undated_as_of_query,
+    validate_membership_dataset,
+)
+```
+
+Undated current snapshots remain displayable. `MembershipQuery.as_of` with undated items raises `UnsupportedQuery` via `validate_membership_dataset` / `reject_undated_as_of_query`. Qlib/backtest must not treat undated memberships as historical truth.
+
+### Removed duplicate functions
+
+Deleted from production orchestration:
+
+- `boards.py`: `_fetch_board_names`, `_fetch_board_cons`, `BOARD_SOURCE`, direct AKShare/pandas paths
+- `pool.py`: `fetch_index_members`, `resolve_index_symbol` (moved to `indexes.py`)
+- `ingest.py`: `fetch_hs300_members` and duplicated csindex/sina index fetch logic
+
+AKShare board/index function names exist only in `tools/ingest/src/astock/providers/akshare/classifications.py`.
+Malformed or duplicate catalog/member rows now raise `InvalidSourcePayload`; they are never silently omitted at the Adapter seam.
+
+### Public import paths
+
+```python
+from astock.providers.akshare import AkshareClassificationAdapter, AkshareMembershipAdapter
+from astock.providers.protocols import ClassificationSource, MembershipSource
+from astock.providers.defaults import default_classification_source, default_membership_source
+from astock.indexes import index_member_tuples, resolve_index_symbol
+from astock_core.market_data import (
+    EASTMONEY_TAXONOMY, CSINDEX_TAXONOMY, DEFAULT_BOARD_TAXONOMY,
+    validate_classification_dataset, validate_membership_dataset,
+    board_rows_from_classifications, membership_code_name_pairs,
+)
+```
+
+```python
+sync_boards(db, *, classification_source=None, membership_source=None)
+ingest_hs300_members(db, *, membership_source=None)
+ingest_hs300(db, *, ..., membership_source=None)
+add_index_to_pool(..., membership_source=None)
+```
+
+Board membership queries carry `MembershipQuery.kind`; orchestration does not call Adapter-specific setup methods.
+
+### Verification
+
+```bash
+uv run --directory tools/ingest pytest tests/test_boards.py tests/test_stock_info.py tests/test_cli.py
+# 9 passed (plan-listed); full ingest suite: 116 passed
+
+uv run --directory apps/control-plane/core pytest tests/test_pool_members.py tests/test_http.py tests/test_feature_http.py
+# 18 passed
+
+uv run --directory apps/control-plane/core pytest ../../../packages/core/tests/test_market_read_model.py ../../../packages/core/tests/test_market_migrations.py
+# passed (migration version 6, board taxonomy rewrite)
+
+pnpm --filter @astock/ui test
+# 51 passed
+
+pnpm run check:architecture
+# passed
+```
+
+Targeted Plan 06 commands all passed after `pnpm install` (node_modules were absent in the worktree).
+
+### Notes for Plan 07
+
+- News/events still use source-shaped fetchers in `astock/news.py` and `astock/events.py`.
+- Keep `astock.providers.defaults`; Plan 08 replaces it with the per-capability registry.
+- Do not add historical membership tables until a source supplies trustworthy effective dates.

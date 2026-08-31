@@ -6,6 +6,7 @@ from typing import Any
 
 from astock_control.adapters.ingest import INGEST_DIR, parse_trailing_json
 from astock_control.protocol import EVENTS_DEFAULT_LIMIT
+from astock_core.market_data import validate_legacy_event_items
 from astock_core.paths import DEFAULT_POOL_ID
 
 EVENTS_TIMEOUT_SECONDS = 60
@@ -45,6 +46,12 @@ def fetch_stock_events(
     *,
     limit: int = EVENTS_DEFAULT_LIMIT,
 ) -> list[dict[str, Any]]:
+    """Fetch events via ingest subprocess.
+
+    The subprocess returns a versioned compatibility DTO produced from typed
+    MarketEvent records at the ingest CLI edge. Successful empty results return
+    ``[]`` with exit code 0; source failures exit non-zero and raise here.
+    """
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env.pop("VIRTUAL_ENV", None)
@@ -68,7 +75,7 @@ def fetch_stock_events(
         raise RuntimeError(f"个股事件拉取失败: {message}")
     if not payload:
         raise RuntimeError("个股事件没有返回 JSON")
-    items = payload.get("events")
-    if not isinstance(items, list):
-        return []
-    return [item for item in items if isinstance(item, dict)]
+    try:
+        return validate_legacy_event_items(payload.get("events", []))
+    except ValueError as exc:
+        raise RuntimeError(f"个股事件 JSON 无效: {exc}") from exc

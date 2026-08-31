@@ -1,25 +1,19 @@
-"""东方财富个股新闻：实时拉取，不入库。"""
+"""Stock news use case: request-time fetch via NewsSource."""
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from astock.ingest import _call
+from astock.providers.protocols import NewsSource
+from astock.providers.registry import resolve_capability
+from astock_core.market_data import (
+    NewsQuery,
+    from_legacy_symbol,
+    news_item_to_legacy_dict,
+)
 
-_TAG_RE = re.compile(r"<[^>]+>")
 NEWS_MAX_LIMIT = 50
 NEWS_DEFAULT_LIMIT = 20
-
-
-def _text(value: Any) -> str:
-    if value is None:
-        return ""
-    text = _TAG_RE.sub("", str(value)).replace("\u3000", " ").replace("\r\n", " ")
-    text = " ".join(text.split())
-    if text.lower() in {"nan", "none", "nat", "<na>"}:
-        return ""
-    return text
 
 
 def _clamp_limit(limit: int | None) -> int:
@@ -28,31 +22,17 @@ def _clamp_limit(limit: int | None) -> int:
     return max(1, min(int(limit), NEWS_MAX_LIMIT))
 
 
-def fetch_stock_news(code: str, *, limit: int | None = None) -> list[dict[str, str]]:
-    import akshare as ak
-
-    symbol = str(code).strip().zfill(6)
+def fetch_stock_news(
+    code: str,
+    *,
+    limit: int | None = None,
+    news_source: NewsSource | None = None,
+) -> list[dict[str, str]]:
+    source = news_source or resolve_capability("news")
+    instrument = from_legacy_symbol(str(code).strip().zfill(6))
     cap = _clamp_limit(limit)
-    frame = _call(ak.stock_news_em, symbol=symbol, retries=2)
-    if frame is None or getattr(frame, "empty", True):
-        return []
-    items: list[dict[str, str]] = []
-    for row in frame.to_dict(orient="records"):
-        title = _text(row.get("新闻标题"))
-        if not title:
-            continue
-        items.append(
-            {
-                "title": title,
-                "summary": _text(row.get("新闻内容")),
-                "published_at": _text(row.get("发布时间")),
-                "source": _text(row.get("文章来源")),
-                "url": _text(row.get("新闻链接")),
-            }
-        )
-        if len(items) >= cap:
-            break
-    return items
+    dataset = source.fetch_news(NewsQuery(instruments=(instrument,), limit=cap))
+    return [news_item_to_legacy_dict(item) for item in reversed(dataset.items)]
 
 
 def format_stock_news(payload: dict[str, Any]) -> str:

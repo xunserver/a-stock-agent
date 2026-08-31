@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from astock.providers.defaults import default_statement_source
 from astock.providers.protocols import StatementSource
+from astock.providers.registry import resolve_capability
 from astock_core.market_data import FinancialSheet, StatementQuery, from_legacy_symbol
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def sync_financial_statements(
     sheets: tuple[str, ...] = FINANCIAL_SHEETS,
     statement_source: StatementSource | None = None,
 ) -> dict[str, int]:
-    source = statement_source or default_statement_source()
+    source = statement_source or resolve_capability("statements")
     stocks = 0
     rows = 0
     errors = 0

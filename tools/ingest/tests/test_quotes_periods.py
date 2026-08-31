@@ -1,9 +1,29 @@
 from __future__ import annotations
 
+from datetime import date
+
 from astock.config import history_start, quote_periods
 from astock.quotes import sync_quotes
 from astock_core.db import BAR_TABLES, MarketDB
+from astock_core.market_data import Adjustment, Bar, BarInterval, from_legacy_symbol
 from astock_core.paths import DEFAULT_ADJUST
+
+
+def _period_bar(trade_date: str, *, interval: BarInterval) -> Bar:
+    return Bar(
+        instrument_id=from_legacy_symbol("000001"),
+        trade_date=date.fromisoformat(trade_date),
+        interval=interval,
+        adjustment=Adjustment(DEFAULT_ADJUST),
+        open=10.0,
+        high=10.8,
+        low=9.9,
+        close=10.5,
+        volume=1000.0,
+        amount=1.0,
+        turnover_pct=1.2,
+        adjustment_factor=1.0,
+    )
 
 
 def test_history_start_from_settings() -> None:
@@ -21,25 +41,8 @@ def test_weekly_monthly_tables_and_upsert(tmp_path) -> None:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            n = db.upsert_bars(
-                [
-                    (
-                        "000001",
-                        "2026-08-22",
-                        10.0,
-                        10.5,
-                        10.8,
-                        9.9,
-                        1000.0,
-                        1.0,
-                        8.0,
-                        5.0,
-                        0.5,
-                        1.2,
-                        DEFAULT_ADJUST,
-                    )
-                ],
-                period=period,
+            n = db.upsert_standard_bars(
+                [_period_bar("2026-08-22", interval=BarInterval.W1 if period == "weekly" else BarInterval.M1)]
             )
             assert n == 1
             assert db.last_bar_date("000001", adjust=DEFAULT_ADJUST, period=period) == "2026-08-22"

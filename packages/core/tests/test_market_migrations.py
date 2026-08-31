@@ -31,14 +31,42 @@ def test_market_migrations_are_versioned_and_repeatable(tmp_path) -> None:
         assert db.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
         assert db.conn.execute(
             "SELECT version FROM _schema_migrations WHERE namespace = 'market'"
-        ).fetchone()[0] == 5
+        ).fetchone()[0] == 6
 
     with MarketDB(path) as db:
         assert db.get_stock("000001")["name"] == "平安银行"
         assert db.calendar_coverage(market_id="cn_a")["count"] == 1
         assert db.conn.execute(
             "SELECT version FROM _schema_migrations WHERE namespace = 'market'"
-        ).fetchone()[0] == 5
+        ).fetchone()[0] == 6
+
+
+def test_legacy_board_source_migrates_to_eastmoney_taxonomy(tmp_path) -> None:
+    path = tmp_path / "legacy-boards.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript(
+        """
+        CREATE TABLE stocks (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO stocks VALUES ('000001', '平安银行', '2026-01-01T00:00:00');
+        CREATE TABLE boards (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'em',
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO boards VALUES ('BK1027', 'industry', '小金属', 'em', '2026-01-01T00:00:00');
+        """
+    )
+    legacy.close()
+
+    with MarketDB(path) as db:
+        boards = db.list_boards(kind="industry")
+        assert boards[0]["source"] == "eastmoney"
 
 
 def test_legacy_statement_payload_migrates_to_canonical_read_model(tmp_path) -> None:

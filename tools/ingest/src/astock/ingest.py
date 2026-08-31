@@ -9,14 +9,14 @@ from astock.config import (
     default_years,
     history_start,
     hs300_index_code,
-    hs300_symbol,
     major_indexes,
     quote_periods,
     request_retries,
     request_sleep_seconds,
 )
-from astock.providers.defaults import default_bar_source, default_calendar_source, default_instrument_source
-from astock.providers.protocols import BarSource, CalendarSource, InstrumentSource
+from astock.indexes import index_member_tuples
+from astock.providers.registry import resolve_capability
+from astock.providers.protocols import BarSource, CalendarSource, InstrumentSource, MembershipSource
 from astock_core.db import INGEST_KINDS, MarketDB
 from astock_core.market_data import (
     Adjustment,
@@ -109,7 +109,7 @@ def ingest_calendar(
         logger.info("交易日历今日已同步，跳过")
         return 0
 
-    source = calendar_source or default_calendar_source()
+    source = calendar_source or resolve_capability("calendar")
     today = date.today()
     query = CalendarQuery(
         market_id=market_id,
@@ -126,7 +126,7 @@ def ingest_calendar(
 
 
 def ingest_stocks(db: MarketDB, *, instrument_source: InstrumentSource | None = None) -> int:
-    source = instrument_source or default_instrument_source()
+    source = instrument_source or resolve_capability("instruments")
     logger.info("拉取沪深京 A 股列表")
     dataset = source.fetch_instruments(InstrumentQuery(asset_types=(AssetType.STOCK,)))
     n = db.upsert_instruments(dataset.items)
@@ -145,34 +145,12 @@ def _years_start(years: int | None) -> str:
     return start.strftime("%Y%m%d")
 
 
-def fetch_hs300_members() -> list[tuple[str, str]]:
-    import akshare as ak
-
-    logger.info("拉取沪深300成分股")
-    try:
-        frame = _call(ak.index_stock_cons_csindex, symbol=hs300_symbol())
-        members = [
-            (str(code).zfill(6), str(name))
-            for code, name in zip(frame["成分券代码"], frame["成分券名称"], strict=True)
-        ]
-        logger.info("中证官网成分股 %s 只", len(members))
-        return members
-    except Exception as exc:
-        logger.warning("中证官网失败，改用新浪：%s", exc)
-
-    frame = _call(ak.index_stock_cons_sina, symbol=hs300_symbol())
-    code_col = "code" if "code" in frame.columns else frame.columns[0]
-    name_col = "name" if "name" in frame.columns else frame.columns[1]
-    members = [
-        (str(code).replace("sh", "").replace("sz", "").zfill(6), str(name))
-        for code, name in zip(frame[code_col], frame[name_col], strict=True)
-    ]
-    logger.info("新浪成分股 %s 只", len(members))
-    return members
-
-
-def ingest_hs300_members(db: MarketDB) -> int:
-    members = fetch_hs300_members()
+def ingest_hs300_members(
+    db: MarketDB,
+    *,
+    membership_source: MembershipSource | None = None,
+) -> int:
+    _, members = index_member_tuples("hs300", membership_source=membership_source)
     db.replace_stocks(members)
     n = db.replace_universe("hs300", members)
     logger.info("沪深300成分写入 %s 只", n)
@@ -186,7 +164,7 @@ def ingest_indexes(
     start_date: str | None = None,
     bar_source: BarSource | None = None,
 ) -> int:
-    source = bar_source or default_bar_source()
+    source = bar_source or resolve_capability("bars")
     total = 0
     end = _today_yyyymmdd()
     begin = start_date or history_start()
@@ -262,7 +240,7 @@ def ingest_bars(
     resolved_adjust = default_adjust() if adjust is None else adjust
     resolved_sleep = request_sleep_seconds() if sleep is None else sleep
     history = start_date or history_start()
-    source = bar_source or default_bar_source()
+    source = bar_source or resolve_capability("bars")
     adjustment = _adjustment_from_persist(resolved_adjust)
     stats = {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
     total = len(universe)
@@ -352,14 +330,16 @@ def ingest_hs300(
     adjust: str | None = None,
     bar_source: BarSource | None = None,
     calendar_source: CalendarSource | None = None,
+    membership_source: MembershipSource | None = None,
 ) -> dict[str, int]:
     resolved_years = default_years() if years is None else years
     start_date = _years_start(resolved_years)
     index_code = hs300_index_code()
-    resolved_bars = bar_source or default_bar_source()
+    resolved_bars = bar_source or resolve_capability("bars")
+    resolved_memberships = membership_source or resolve_capability("memberships")
     result = {
         "calendar": ingest_calendar(db, calendar_source=calendar_source),
-        "hs300_members": ingest_hs300_members(db),
+        "hs300_members": ingest_hs300_members(db, membership_source=resolved_memberships),
         "indexes": ingest_indexes(
             db,
             indexes=((index_code, "沪深300"),),
@@ -394,7 +374,7 @@ def ingest_all(
     calendar_source: CalendarSource | None = None,
     instrument_source: InstrumentSource | None = None,
 ) -> dict[str, int]:
-    resolved_bars = bar_source or default_bar_source()
+    resolved_bars = bar_source or resolve_capability("bars")
     result = {
         "calendar": ingest_calendar(db, calendar_source=calendar_source),
         "stocks": ingest_stocks(db, instrument_source=instrument_source),

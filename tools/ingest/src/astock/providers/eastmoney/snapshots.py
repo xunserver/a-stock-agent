@@ -80,9 +80,9 @@ def _default_sleep(seconds: float) -> None:
 
 
 def _default_get_json(url: str, params: dict[str, str], timeout: float) -> object:
-    from astock.eastmoney import _get
+    from astock.providers.eastmoney._transport import get_response
 
-    return _get(url, params, timeout=timeout).json()
+    return get_response(url, params, timeout=timeout).json()
 
 
 class EastmoneySnapshotAdapter:

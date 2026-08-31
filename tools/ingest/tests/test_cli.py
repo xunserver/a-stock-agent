@@ -32,7 +32,22 @@ def test_formatters_keep_table_content_readable() -> None:
 
 
 def test_dispatch_news_uses_the_parsed_json_contract(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(handlers, "fetch_stock_news", lambda code, limit: [{"title": f"{code}/{limit}"}])
+    expected_source = object()
+
+    class Registry:
+        def news_source(self):
+            return expected_source
+
+    monkeypatch.setattr(handlers, "build_registry", lambda: Registry())
+    monkeypatch.setattr(
+        handlers,
+        "fetch_stock_news",
+        lambda code, limit, news_source: [
+            {"title": f"{code}/{limit}"}
+            if news_source is expected_source
+            else {"title": "wrong-source"}
+        ],
+    )
     parser = build_parser()
     args = parser.parse_args(["stock", "news", "1", "--limit", "3", "--json"])
 

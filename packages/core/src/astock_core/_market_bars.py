@@ -337,11 +337,6 @@ class _MarketBars(_MarketBase):
         ]
         return self._upsert_index_bar_tuples(rows)
 
-    def upsert_bars(self, rows: list[tuple], *, period: str = "daily") -> int:
-        # Tuple compatibility for test fixtures and remaining writers.
-        # Removed by Plan 08 once all writers use upsert_standard_bars.
-        return self._upsert_bar_tuples(rows, period=period)
-
     def _upsert_bar_tuples(self, rows: list[tuple], *, period: str = "daily") -> int:
         if not rows:
             return 0
@@ -371,11 +366,6 @@ class _MarketBars(_MarketBase):
                 rows,
             )
         return len(rows)
-
-    def upsert_index_bars(self, rows: list[tuple]) -> int:
-        # Tuple compatibility for test fixtures and remaining writers.
-        # Removed by Plan 08 once all writers use upsert_standard_index_bars.
-        return self._upsert_index_bar_tuples(rows)
 
     def _upsert_index_bar_tuples(self, rows: list[tuple]) -> int:
         if not rows:

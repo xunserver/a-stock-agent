@@ -336,8 +336,19 @@ def test_ingest_indexes_skips_already_current(tmp_path, monkeypatch) -> None:
             raise AssertionError("already-current index must not fetch")
 
     with MarketDB(tmp_path / "market.db") as db:
-        db.upsert_index_bars(
-            [("sh000300", "沪深300", "2026-08-28", 1, 2, 3, 0.5, 100, 200)]
+        db.upsert_standard_index_bars(
+            [
+                _bar(
+                    instrument_id=instrument_id_for_index_code("sh000300"),
+                    trade_date=date(2026, 8, 28),
+                    close=2.0,
+                    high=3.0,
+                    low=0.5,
+                    volume=100.0,
+                )
+            ],
+            code="sh000300",
+            name="沪深300",
         )
         n = ingest_indexes(
             db,

@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 from astock_core.db import MarketDB
+from astock_core.market_data import Adjustment, Bar, BarInterval, from_legacy_symbol
 
 from astock_qlib.dump import dump_qlib, pool_data_ready, prepare_pool_qlib
 from astock_qlib.ranking import top_scores
@@ -18,23 +19,31 @@ def test_dump_writes_instruments_for_every_pool(tmp_path) -> None:
         db.create_pool("focus", "重点池")
         db.add_pool_members("default", [("000001", "平安银行")], source="manual")
         db.add_pool_members("focus", [("600519", "贵州茅台")], source="manual")
-        db.upsert_bars(
+        db.upsert_standard_bars(
             [
-                ("000001", "2026-08-25", 10, 11, 12, 9, 100, 1000, 3, 1, 1, 2, "qfq"),
-                (
-                    "600519",
-                    "2026-08-25",
-                    100,
-                    101,
-                    102,
-                    99,
-                    100,
-                    10000,
-                    3,
-                    1,
-                    1,
-                    2,
-                    "qfq",
+                Bar(
+                    instrument_id=from_legacy_symbol("000001"),
+                    trade_date=pd.Timestamp("2026-08-25").date(),
+                    interval=BarInterval.D1,
+                    adjustment=Adjustment.QFQ,
+                    open=10,
+                    high=12,
+                    low=9,
+                    close=11,
+                    volume=100,
+                    amount=1000,
+                ),
+                Bar(
+                    instrument_id=from_legacy_symbol("600519"),
+                    trade_date=pd.Timestamp("2026-08-25").date(),
+                    interval=BarInterval.D1,
+                    adjustment=Adjustment.QFQ,
+                    open=100,
+                    high=102,
+                    low=99,
+                    close=101,
+                    volume=100,
+                    amount=10000,
                 ),
             ]
         )
@@ -50,9 +59,20 @@ def test_prepare_pool_qlib_writes_pool_directory(tmp_path) -> None:
         db.add_stocks([("000001", "平安银行")])
         db.create_pool("focus", "重点池")
         db.add_pool_members("focus", [("000001", "平安银行")], source="manual")
-        db.upsert_bars(
+        db.upsert_standard_bars(
             [
-                ("000001", "2026-08-25", 10, 11, 12, 9, 100, 1000, 3, 1, 1, 2, "qfq"),
+                Bar(
+                    instrument_id=from_legacy_symbol("000001"),
+                    trade_date=pd.Timestamp("2026-08-25").date(),
+                    interval=BarInterval.D1,
+                    adjustment=Adjustment.QFQ,
+                    open=10,
+                    high=12,
+                    low=9,
+                    close=11,
+                    volume=100,
+                    amount=1000,
+                ),
             ]
         )
         dest = tmp_path / "qlib" / "pools" / "focus"

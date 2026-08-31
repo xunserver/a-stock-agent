@@ -26,7 +26,7 @@ a-stock-agent/
 每个工具在自己的目录里 `uv sync`，不要在仓库根执行 `uv sync`。
 
 ```bash
-# 采集（依赖 akshare）
+# 采集（依赖 astock-core；行情数据源经 registry 按能力配置）
 cd tools/ingest && uv sync
 
 # 选股 / 分析（目前只依赖 core 读库，以后各自加包）

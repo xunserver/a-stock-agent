@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import { Link } from "react-router"
 import { ListTodoIcon } from "lucide-react"
 
@@ -37,49 +37,20 @@ import {
   jobStatusVariant,
   summarizeJobError,
 } from "@/lib/jobs"
-import { listJobs, type Job } from "@/lib/api"
-import { notify } from "@/lib/notify"
 
 export function JobsPage() {
-  const { openJob } = useJobs()
-  const [jobs, setJobs] = useState<Job[]>([])
+  const { openJob, jobs: allJobs, loading } = useJobs()
   const [date, setDate] = useState("")
   const [trigger, setTrigger] = useState("")
-  const [loading, setLoading] = useState(true)
-  const lastErrorRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function refresh() {
-      try {
-        const next = await listJobs({
-          date: date || undefined,
-          trigger: trigger || undefined,
-        })
-        if (!cancelled) {
-          setJobs(next)
-          lastErrorRef.current = null
-        }
-      } catch (reason: unknown) {
-        if (!cancelled) {
-          const message =
-            reason instanceof Error ? reason.message : "加载任务失败"
-          if (lastErrorRef.current !== message) {
-            lastErrorRef.current = message
-            notify.error("无法读取任务", { description: message })
-          }
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 2000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [date, trigger])
+  const jobs = useMemo(
+    () =>
+      allJobs.filter(
+        (job) =>
+          (!date || job.created_at.slice(0, 10) === date) &&
+          (!trigger || job.trigger === trigger)
+      ),
+    [allJobs, date, trigger]
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -88,7 +59,7 @@ export function JobsPage() {
           <div>
             <CardTitle>任务</CardTitle>
             <CardDescription>
-              手动与自动执行记录永久保留，大约每 2 秒刷新。点一行查看日志。
+              手动与自动执行记录永久保留，运行状态由任务事件流实时更新。点一行查看日志。
             </CardDescription>
           </div>
           <div className="flex gap-2">

@@ -84,13 +84,8 @@ def add_codes_to_pool(
     pool_id: str = DEFAULT_POOL_ID,
     source: str = "manual",
 ) -> dict:
-    members: list[tuple[str, str]] = []
-    for code in codes:
-        row = db.conn.execute(
-            "SELECT name FROM stocks WHERE code = ?",
-            (code,),
-        ).fetchone()
-        members.append((code, row["name"] if row else code))
+    names = db.stock_names(codes)
+    members = [(code, names.get(code) or code) for code in codes]
     result = db.add_pool_members(pool_id, members, source=source)
     result["pool"] = pool_id
     result["active"] = len(db.active_pool_codes(pool_id))
@@ -98,13 +93,8 @@ def add_codes_to_pool(
 
 
 def add_codes_to_stocks(db: MarketDB, codes: list[str]) -> dict:
-    members: list[tuple[str, str]] = []
-    for code in codes:
-        row = db.conn.execute(
-            "SELECT name FROM stocks WHERE code = ?",
-            (code,),
-        ).fetchone()
-        members.append((code, row["name"] if row else code))
+    names = db.stock_names(codes)
+    members = [(code, names.get(code) or code) for code in codes]
     return db.add_stocks(members)
 
 

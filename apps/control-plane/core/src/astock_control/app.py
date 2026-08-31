@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import asyncio
-import json
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
+
+from astock_core.automation import AutomationStore
 
 from astock_control.adapters.analyze import AnalyzeRunner
 from astock_control.adapters.ingest import IngestRunner
@@ -18,50 +18,30 @@ from astock_control.adapters.stock import StockRunner
 from astock_control.automation_api import router as automation_router
 from astock_control.automations import AutomationManager
 from astock_control.config import SettingsRunner
-from astock_control.engine import DispatchRunner, Engine
-from astock_control.protocol import TERMINAL_JOB_STATUSES, ProtocolError
-from astock_control.queries import handle_query
+from astock_control.engine import JobService
+from astock_control.feature_api import router as feature_router
+from astock_control.job_api import router as job_router
+from astock_control.protocol import ProtocolError
 from astock_control.scheduler import Scheduler
+from astock_control.task_registry import TaskDefinition, TaskRegistry
 
 
-def create_app(engine: Engine | None = None) -> FastAPI:
+def create_app(
+    engine: JobService | None = None,
+    automation_store: AutomationStore | None = None,
+) -> FastAPI:
     supplied = engine
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        eng = (
-            supplied
-            if supplied is not None
-            else Engine(
-                DispatchRunner(
-                    {
-                        "quotes.sync": IngestRunner(),
-                        "boards.sync": IngestRunner(),
-                        "stock.sync": IngestRunner(),
-                        "analyze.run": AnalyzeRunner(),
-                        "qlib.run": QlibRunner(),
-                        "qlib.dump": QlibRunner(),
-                        "qlib.workflow.update": QlibRunner(),
-                        "stock.add": StockRunner(),
-                        "stock.remove": StockRunner(),
-                        "pool.add": PoolRunner(),
-                        "pool.set": IngestRunner(),
-                        "pool.remove": PoolRunner(),
-                        "pool.reorder": PoolRunner(),
-                        "pool.create": PoolRunner(),
-                        "pool.delete": PoolRunner(),
-                        "settings.update": SettingsRunner(),
-                    }
-                ),
-                handle_query,
-            )
-        )
+        store = automation_store or AutomationStore()
+        eng = supplied or JobService(_task_registry(), repository=store)
         eng.start()
         app.state.engine = eng
-        manager = AutomationManager(eng.store, eng)
+        manager = AutomationManager(store, eng)
         manager.seed_legacy_quotes()
         app.state.automation_manager = manager
-        scheduler = None if supplied is not None else Scheduler(eng, eng.store)
+        scheduler = None if supplied is not None else Scheduler(eng, store)
         if scheduler is not None:
             scheduler.start()
         app.state.scheduler = scheduler
@@ -87,117 +67,79 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(automation_router)
+    app.include_router(feature_router)
+    app.include_router(job_router)
 
     @app.exception_handler(ProtocolError)
     async def protocol_error(_request: Request, exc: ProtocolError) -> JSONResponse:
-        return JSONResponse({"error": str(exc)}, status_code=400)
+        return _error_response("protocol_error", str(exc), status_code=400)
 
     @app.exception_handler(HTTPException)
     async def http_error(_request: Request, exc: HTTPException) -> JSONResponse:
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        return JSONResponse({"error": detail}, status_code=exc.status_code)
+        return _error_response(f"http_{exc.status_code}", detail, status_code=exc.status_code)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(
+        _request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        first = exc.errors()[0] if exc.errors() else {}
+        message = str(first.get("msg") or "请求参数不合法")
+        return _error_response("validation_error", message, status_code=422)
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
         return {"ok": True, "service": "astock-control"}
 
-    @app.post("/api/commands")
-    def post_command(body: dict[str, Any], request: Request) -> dict[str, Any]:
-        job = _engine(request).submit(body)
-        return job.to_dict()
-
-    @app.post("/api/queries")
-    def post_query(body: dict[str, Any], request: Request) -> dict[str, Any]:
-        try:
-            return _engine(request).query(body)
-        except ProtocolError:
-            raise
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.get("/api/jobs")
-    def list_jobs(
-        request: Request,
-        automation_id: str | None = None,
-        date: str | None = None,
-        trigger: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> dict[str, Any]:
-        engine = _engine(request)
-        jobs = engine.list_jobs(
-            automation_id=automation_id,
-            date=date,
-            trigger=trigger,
-            limit=limit,
-            offset=offset,
-        )
-        return {
-            "jobs": [job.to_dict(include_log=False) for job in jobs],
-            "count": engine.store.count_jobs(
-                automation_id=automation_id,
-                date=date,
-                trigger=trigger,
-            ),
-            "limit": limit,
-            "offset": offset,
-        }
-
-    @app.get("/api/jobs/{job_id}")
-    def get_job(job_id: str, request: Request) -> dict[str, Any]:
-        job = _engine(request).get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail=f"找不到任务: {job_id}")
-        return job.to_dict()
-
-    @app.post("/api/jobs/{job_id}/cancel")
-    def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
-        job = _engine(request).cancel(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail=f"找不到任务: {job_id}")
-        return job.to_dict()
-
-    @app.get("/api/jobs/{job_id}/events")
-    async def job_events(job_id: str, request: Request) -> StreamingResponse:
-        engine = _engine(request)
-        if engine.get_job(job_id) is None:
-            raise HTTPException(status_code=404, detail=f"找不到任务: {job_id}")
-
-        async def generate() -> AsyncIterator[str]:
-            seen = 0
-            while True:
-                job = await asyncio.to_thread(engine.wait_for_change, job_id, seen)
-                if job is None:
-                    yield _sse({"stream": "status", "message": "missing"})
-                    return
-                for line in job.log[seen:]:
-                    yield _sse({"stream": "log", "message": line})
-                seen = len(job.log)
-                if job.status in TERMINAL_JOB_STATUSES:
-                    yield _sse(
-                        {
-                            "stream": "status",
-                            "message": job.status,
-                            "data": job.to_dict(include_log=False),
-                        }
-                    )
-                    return
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
     return app
 
 
-def _engine(request: Request) -> Engine:
-    return request.app.state.engine
+def _task_registry() -> TaskRegistry:
+    ingest = IngestRunner()
+    qlib = QlibRunner()
+    pool = PoolRunner()
+    stock = StockRunner()
+    settings = SettingsRunner()
+    definitions = (
+        *(
+            TaskDefinition(task_type, ingest)
+            for task_type in (
+                "quotes.sync",
+                "boards.sync",
+                "stock.sync",
+                "pool.set",
+            )
+        ),
+        TaskDefinition("analyze.run", AnalyzeRunner()),
+        *(
+            TaskDefinition(task_type, qlib)
+            for task_type in ("qlib.run", "qlib.dump", "qlib.workflow.update")
+        ),
+        *(
+            TaskDefinition(task_type, stock)
+            for task_type in ("stock.add", "stock.remove")
+        ),
+        *(
+            TaskDefinition(task_type, pool)
+            for task_type in (
+                "pool.add",
+                "pool.remove",
+                "pool.reorder",
+                "pool.create",
+                "pool.delete",
+            )
+        ),
+        TaskDefinition("settings.update", settings),
+    )
+    return TaskRegistry(definitions)
 
 
-def _sse(payload: dict[str, Any]) -> str:
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+def _error_response(code: str, message: str, *, status_code: int) -> JSONResponse:
+    return JSONResponse(
+        {"error": {"code": code, "message": message}},
+        status_code=status_code,
+    )
 
 
 app = create_app()

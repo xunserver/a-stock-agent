@@ -1,64 +1,38 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from zoneinfo import ZoneInfo
 
 from astock.config import default_adjust, request_sleep_seconds
-from astock.ingest import _call
 from astock.financial import sync_financial_statements
-from astock.profile import (
-    BATCH_MIN_CODES,
-    PROFILE_VALUE_KEYS,
-    fetch_financial_reports,
-    load_profiles,
-    sync_financial_summaries_batch,
+from astock.providers.defaults import (
+    default_fundamental_source,
+    default_stock_info_source,
+)
+from astock.providers.protocols import (
+    FundamentalSource,
+    InstrumentProfileSource,
+    QuoteSnapshotSource,
+    StatementSource,
+    ValuationSource,
 )
 from astock.quotes import sync_quotes
 from astock_core.db import MarketDB
+from astock_core.market_data import (
+    FundamentalQuery,
+    InstrumentId,
+    InstrumentQuery,
+    SnapshotQuery,
+    ValuationQuery,
+    fill_quote_limits,
+    fill_share_counts,
+    from_legacy_symbol,
+    to_legacy_symbol,
+)
 from astock_core.paths import DEFAULT_POOL_ID
 
 logger = logging.getLogger(__name__)
-
-
-def _as_yyyymmdd(value: str | None) -> str:
-    if not value:
-        return date.today().strftime("%Y%m%d")
-    return value.replace("-", "")[:8]
-
-
-def fetch_st_codes() -> set[str]:
-    import akshare as ak
-
-    frame = _call(ak.stock_zh_a_st_em)
-    if frame is None or frame.empty:
-        return set()
-    col = "代码" if "代码" in frame.columns else frame.columns[1]
-    return {str(code).zfill(6) for code in frame[col] if str(code).strip()}
-
-
-def fetch_suspend_map(as_of: str) -> dict[str, str]:
-    import akshare as ak
-
-    try:
-        frame = _call(ak.stock_tfp_em, date=_as_yyyymmdd(as_of))
-    except Exception as exc:
-        logger.warning("停复牌拉取失败：%s", exc)
-        return {}
-    if frame is None or frame.empty:
-        return {}
-    out: dict[str, str] = {}
-    for row in frame.to_dict(orient="records"):
-        raw_code = row.get("代码") or row.get("code")
-        if not raw_code:
-            continue
-        code = str(raw_code).zfill(6)
-        reason = row.get("停牌原因") or row.get("reason") or ""
-        until = row.get("预计复牌时间") or row.get("unpause_date") or ""
-        note = str(reason).strip()
-        if until:
-            note = f"{note} 预计复牌 {until}".strip()
-        out[code] = note
-    return out
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def sync_stock_info(
@@ -67,77 +41,165 @@ def sync_stock_info(
     *,
     sleep: float | None = None,
     with_statements: bool = False,
+    profile_source: InstrumentProfileSource | None = None,
+    snapshot_source: QuoteSnapshotSource | None = None,
+    valuation_source: ValuationSource | None = None,
+    fundamental_source: FundamentalSource | None = None,
+    statement_source: StatementSource | None = None,
 ) -> dict[str, int]:
     resolved_sleep = request_sleep_seconds() if sleep is None else sleep
-    last_cal = db.current_trade_date()
-    try:
-        st_codes = fetch_st_codes()
-    except Exception as exc:
-        logger.warning("ST 列表拉取失败：%s", exc)
-        st_codes = set()
-    suspend_map = fetch_suspend_map(last_cal) if last_cal else {}
-    batch_financial = len(codes) >= BATCH_MIN_CODES
-    if batch_financial:
+    if profile_source is None and snapshot_source is None and valuation_source is None:
+        adapter = default_stock_info_source(pause=resolved_sleep)
+        profile_source = snapshot_source = valuation_source = adapter
+    else:
+        adapter = default_stock_info_source(pause=resolved_sleep)
+        profile_source = profile_source or adapter
+        snapshot_source = snapshot_source or adapter
+        valuation_source = valuation_source or adapter
+    if fundamental_source is None:
+        fundamental_source = default_fundamental_source()
+
+    wanted = [code.zfill(6) for code in codes if str(code).strip()]
+    if not wanted:
+        return {
+            "info_ok": 0,
+            "info_error": 0,
+            "info_total": 0,
+            "profile_ok": 0,
+            "profile_error": 0,
+            "snapshot_ok": 0,
+            "snapshot_error": 0,
+            "valuation_ok": 0,
+            "valuation_error": 0,
+        }
+    instrument_ids = tuple(from_legacy_symbol(code) for code in wanted)
+
+    fundamentals = _fetch_capability(
+        "财务摘要",
+        lambda: fundamental_source.fetch_fundamentals(
+            FundamentalQuery(instruments=instrument_ids)
+        ),
+    )
+    if fundamentals is not None and fundamentals.items:
         try:
-            fin = sync_financial_summaries_batch(db, codes)
-            logger.info(
-                "批量财报入库 %s 只 / %s 行",
-                fin.get("financial_stocks", 0),
-                fin.get("financial_rows", 0),
-            )
+            db.upsert_fundamental_periods(fundamentals.items)
         except Exception as exc:
-            logger.warning("批量财报入库失败：%s", exc)
-    try:
-        profiles = load_profiles(codes, sleep=resolved_sleep, st_codes=st_codes)
-    except Exception as exc:
-        logger.warning("AKShare 资料批量拉取失败：%s", exc)
-        profiles = {}
+            logger.warning("财务摘要入库失败：%s", exc)
+
+    profiles = _fetch_capability(
+        "资料",
+        lambda: profile_source.fetch_profiles(InstrumentQuery(instruments=instrument_ids)),
+    )
+    snapshots = _fetch_capability(
+        "行情快照",
+        lambda: snapshot_source.fetch_snapshots(SnapshotQuery(instruments=instrument_ids)),
+    )
+    valuations = _fetch_capability(
+        "估值",
+        lambda: valuation_source.fetch_valuations(ValuationQuery(instruments=instrument_ids)),
+    )
+    profiles_by_id = {item.instrument_id: item for item in (profiles.items if profiles else ())}
+    snapshots_by_id = {item.instrument_id: item for item in (snapshots.items if snapshots else ())}
+    valuations_by_id = {item.instrument_id: item for item in (valuations.items if valuations else ())}
+
     ok = 0
     error = 0
-    for i, code in enumerate(codes, start=1):
+    profile_ok = snapshot_ok = valuation_ok = 0
+    profile_error = 0 if profiles is not None else 1
+    snapshot_error = 0 if snapshots is not None else 1
+    valuation_error = 0 if valuations is not None else 1
+
+    for i, code in enumerate(wanted, start=1):
+        instrument_id = from_legacy_symbol(code)
         try:
-            profile = dict(profiles.get(code) or {})
-            existing = db.get_stock(code) or {}
-            name = str(profile.get("name") or existing.get("name") or code)
-            payload = {
-                key: profile[key]
-                for key in PROFILE_VALUE_KEYS
-                if key in profile and profile[key] is not None
-            }
-            db.upsert_stock_profile(
-                code,
-                name=name,
-                **payload,
-                is_st=1 if code in st_codes else 0,
-                is_suspended=1 if code in suspend_map else 0,
-                suspend_info=suspend_map.get(code),
+            wrote = _persist_capabilities(
+                db,
+                instrument_id,
+                profile=profiles_by_id.get(instrument_id),
+                snapshot=snapshots_by_id.get(instrument_id),
+                valuation=valuations_by_id.get(instrument_id),
             )
-            if not payload:
-                raise RuntimeError("AKShare 未返回可用资料")
-            if not batch_financial:
-                try:
-                    reports = fetch_financial_reports(code)
-                    if reports:
-                        db.upsert_financial_reports(code, reports)
-                except Exception as exc:
-                    logger.warning("财报入库失败 %s: %s", code, exc)
+            if wrote["profile"]:
+                profile_ok += 1
+            if wrote["snapshot"]:
+                snapshot_ok += 1
+            if wrote["valuation"]:
+                valuation_ok += 1
+            if not any(wrote.values()):
+                raise RuntimeError("未返回可用资料")
             ok += 1
-            if i == 1 or i % 20 == 0 or i == len(codes):
-                logger.info("个股资料 %s/%s  %s %s", i, len(codes), code, name)
+            existing = db.get_stock(code) or {}
+            if i == 1 or i % 20 == 0 or i == len(wanted):
+                logger.info(
+                    "个股资料 %s/%s  %s %s",
+                    i,
+                    len(wanted),
+                    code,
+                    existing.get("name") or code,
+                )
         except Exception as exc:
             error += 1
             logger.warning("个股资料失败 %s: %s", code, exc)
+
     result: dict[str, int] = {
         "info_ok": ok,
         "info_error": error,
-        "info_total": len(codes),
+        "info_total": len(wanted),
+        "profile_ok": profile_ok,
+        "profile_error": profile_error,
+        "snapshot_ok": snapshot_ok,
+        "snapshot_error": snapshot_error,
+        "valuation_ok": valuation_ok,
+        "valuation_error": valuation_error,
     }
     if with_statements:
         try:
-            result.update(sync_financial_statements(db, codes))
+            result.update(sync_financial_statements(db, wanted, statement_source=statement_source))
         except Exception as exc:
             logger.warning("报表明细批量入库失败：%s", exc)
     return result
+
+
+def _fetch_capability(label: str, fetch):
+    try:
+        return fetch()
+    except Exception as exc:
+        logger.warning("%s拉取失败：%s", label, exc)
+        return None
+
+
+def _persist_capabilities(
+    db: MarketDB,
+    instrument_id: InstrumentId,
+    *,
+    profile,
+    snapshot,
+    valuation,
+) -> dict[str, bool]:
+    wrote = {"profile": False, "snapshot": False, "valuation": False}
+    is_st = bool(profile.is_st) if profile is not None else False
+    if snapshot is not None:
+        snapshot, limit_warnings = fill_quote_limits(snapshot, is_st=is_st)
+        for warning in limit_warnings:
+            logger.info("%s %s", to_legacy_symbol(instrument_id), warning)
+    if valuation is not None and snapshot is not None:
+        valuation, share_warnings = fill_share_counts(
+            valuation,
+            last_price=snapshot.last_price,
+            price_as_of=snapshot.observed_at.astimezone(_SHANGHAI).date(),
+        )
+        for warning in share_warnings:
+            logger.info("%s %s", to_legacy_symbol(instrument_id), warning)
+    if profile is not None:
+        db.upsert_instrument_profiles((profile,))
+        wrote["profile"] = True
+    if snapshot is not None:
+        db.upsert_quote_snapshots((snapshot,))
+        wrote["snapshot"] = True
+    if valuation is not None:
+        db.upsert_valuation_snapshots((valuation,))
+        wrote["valuation"] = True
+    return wrote
 
 
 def stock_snapshot(

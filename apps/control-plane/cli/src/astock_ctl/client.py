@@ -37,10 +37,23 @@ def base_url() -> str:
     return os.environ.get("ASTOCK_CONTROL_URL", DEFAULT_BASE_URL).rstrip("/")
 
 
-def request(method: str, path: str, *, payload: dict[str, Any] | None = None) -> Any:
+def request(
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
+) -> Any:
+    """Send one control-plane request without hand-building query strings."""
     url = base_url() + path
     try:
-        response = httpx.request(method, url, json=payload, timeout=30.0)
+        response = httpx.request(
+            method,
+            url,
+            json=payload,
+            params=params,
+            timeout=30.0,
+        )
     except httpx.ConnectError as exc:
         raise CoreUnavailable() from exc
     except httpx.HTTPError as exc:

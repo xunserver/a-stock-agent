@@ -1,6 +1,13 @@
 import type { FinancialReport } from "@/lib/api"
+import {
+  incrementalPeriodValue,
+  pctChange,
+  previousFiscalPeriodDate,
+  previousSameYearPeriodDate,
+  priorYearPeriodDate,
+} from "@/lib/financial-periods"
 
-export const PERIOD_ENDS = ["03-31", "06-30", "09-30", "12-31"] as const
+export { PERIOD_ENDS } from "@/lib/financial-periods"
 
 export type MetricKey =
   | "eps"
@@ -145,8 +152,6 @@ function computeQoq(
   let base: number | null
   if (!priorPeriod) {
     base = null
-  } else if (metric.cumulative && priorPeriod.report_date?.endsWith("-12-31")) {
-    base = q4IncrementalValue(priorPeriod, metric.key, byDate)
   } else if (metric.cumulative) {
     base = incrementalValue(priorPeriod, metric.key, byDate)
   } else {
@@ -185,38 +190,14 @@ function incrementalValue(
     return raw ?? null
   }
 
-  const md = report.report_date.slice(5)
-  const periodIndex = PERIOD_ENDS.indexOf(md as (typeof PERIOD_ENDS)[number])
-  if (periodIndex <= 0) {
-    return raw
-  }
-
-  const year = report.report_date.slice(0, 4)
-  const previous = byDate.get(`${year}-${PERIOD_ENDS[periodIndex - 1]}`)
+  const previousDate = previousSameYearPeriodDate(report.report_date)
+  const previous = previousDate ? byDate.get(previousDate) : undefined
   const previousRaw = previous?.[key]
-  if (previousRaw == null || !Number.isFinite(previousRaw)) {
-    return raw
-  }
-  return raw - previousRaw
-}
-
-function q4IncrementalValue(
-  report: FinancialReport,
-  key: MetricKey,
-  byDate: Map<string, FinancialReport>
-): number | null {
-  const raw = report[key]
-  if (raw == null || !Number.isFinite(raw) || !report.report_date) {
-    return raw ?? null
-  }
-
-  const year = report.report_date.slice(0, 4)
-  const q3 = byDate.get(`${year}-09-30`)
-  const q3Raw = q3?.[key]
-  if (q3Raw == null || !Number.isFinite(q3Raw)) {
-    return raw
-  }
-  return raw - q3Raw
+  return incrementalPeriodValue(
+    report.report_date,
+    raw,
+    previousRaw != null && Number.isFinite(previousRaw) ? previousRaw : null
+  )
 }
 
 function findPriorYearReport(
@@ -226,9 +207,8 @@ function findPriorYearReport(
   if (!report.report_date) {
     return undefined
   }
-  const year = Number(report.report_date.slice(0, 4))
-  const md = report.report_date.slice(5)
-  return byDate.get(`${year - 1}-${md}`)
+  const priorDate = priorYearPeriodDate(report.report_date)
+  return priorDate ? byDate.get(priorDate) : undefined
 }
 
 function findPriorPeriodReport(
@@ -239,32 +219,8 @@ function findPriorPeriodReport(
     return undefined
   }
 
-  const year = report.report_date.slice(0, 4)
-  const md = report.report_date.slice(5)
-  const periodIndex = PERIOD_ENDS.indexOf(md as (typeof PERIOD_ENDS)[number])
-  if (periodIndex < 0) {
-    return undefined
-  }
-  if (periodIndex === 0) {
-    return byDate.get(`${Number(year) - 1}-12-31`)
-  }
-  return byDate.get(`${year}-${PERIOD_ENDS[periodIndex - 1]}`)
-}
-
-function pctChange(
-  current: number | null,
-  base: number | null
-): number | null {
-  if (
-    current == null ||
-    base == null ||
-    !Number.isFinite(current) ||
-    !Number.isFinite(base) ||
-    base === 0
-  ) {
-    return null
-  }
-  return ((current - base) / Math.abs(base)) * 100
+  const priorDate = previousFiscalPeriodDate(report.report_date)
+  return priorDate ? byDate.get(priorDate) : undefined
 }
 
 export function pctClass(value: number | null): string {

@@ -191,17 +191,11 @@ def prepare_pool_qlib(
 
 
 def _load_stock_bars(db: MarketDB, *, adjust: str) -> pd.DataFrame:
-    frame = pd.read_sql_query(
-        """
-        SELECT code, trade_date AS date, open, close, high, low, volume, amount
-        FROM bars_daily
-        WHERE adjust = ?
-        ORDER BY code, trade_date
-        """,
-        db.conn,
-        params=(adjust,),
-        parse_dates=["date"],
+    columns = ["code", "date", "open", "close", "high", "low", "volume", "amount"]
+    frame = pd.DataFrame.from_records(
+        db.list_bar_export_rows(adjust=adjust), columns=columns
     )
+    frame["date"] = pd.to_datetime(frame["date"])
     if frame.empty:
         return frame
     frame["symbol"] = frame["code"].map(to_qlib_symbol)
@@ -209,15 +203,11 @@ def _load_stock_bars(db: MarketDB, *, adjust: str) -> pd.DataFrame:
 
 
 def _load_index_bars(db: MarketDB) -> pd.DataFrame:
-    frame = pd.read_sql_query(
-        """
-        SELECT code, trade_date AS date, open, close, high, low, volume, amount
-        FROM index_daily
-        ORDER BY code, trade_date
-        """,
-        db.conn,
-        parse_dates=["date"],
+    columns = ["code", "date", "open", "close", "high", "low", "volume", "amount"]
+    frame = pd.DataFrame.from_records(
+        db.list_index_bar_export_rows(), columns=columns
     )
+    frame["date"] = pd.to_datetime(frame["date"])
     if frame.empty:
         return frame
     frame["symbol"] = frame["code"].map(to_qlib_symbol)
@@ -234,15 +224,7 @@ def _with_derived(frame: pd.DataFrame) -> pd.DataFrame:
 def _build_calendar(db: MarketDB, dates: pd.Series) -> list[pd.Timestamp]:
     start = pd.Timestamp(dates.min()).strftime("%Y-%m-%d")
     end = pd.Timestamp(dates.max()).strftime("%Y-%m-%d")
-    rows = db.conn.execute(
-        """
-        SELECT trade_date FROM trade_calendar
-        WHERE market_id = 'cn_a' AND trade_date >= ? AND trade_date <= ?
-        ORDER BY trade_date
-        """,
-        (start, end),
-    ).fetchall()
-    calendar = {pd.Timestamp(row[0]) for row in rows}
+    calendar = {pd.Timestamp(value) for value in db.list_calendar_dates(start, end)}
     calendar.update(pd.Timestamp(value) for value in dates.dropna().unique())
     return sorted(calendar)
 

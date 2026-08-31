@@ -6,12 +6,21 @@ from fastapi.testclient import TestClient
 
 from astock_control.app import create_app
 from astock_control.config import SettingsRunner
-from astock_control.engine import DispatchRunner, Engine
-from astock_control.queries import handle_query
+from astock_control.engine import JobService
+from astock_control.task_registry import TaskDefinition, TaskRegistry
 from tests.test_engine import FakeRunner, _wait_status
 
 
-def test_health_and_status_and_sync() -> None:
+def registry(mapping: dict) -> TaskRegistry:
+    return TaskRegistry(TaskDefinition(task_type, runner) for task_type, runner in mapping.items())
+
+
+def Engine(runner, _removed_query_handler=None) -> JobService:
+    return JobService(runner)
+
+
+def test_health_and_status_and_sync(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("astock_control.queries.DB_PATH", tmp_path / "market.db")
     runner = FakeRunner(logs=["pulling"], result={"ok": 1})
     engine = Engine(runner, lambda q: {"pool": q["pool"], "need_full": 0} if q["type"] == "status" else {"pool": q["pool"], "count": 0, "members": []})
     with TestClient(create_app(engine)) as client:
@@ -19,20 +28,20 @@ def test_health_and_status_and_sync() -> None:
         assert health.status_code == 200
         assert health.json()["ok"] is True
 
-        status = client.post("/api/queries", json={"type": "status"})
+        status = client.get("/api/status")
         assert status.status_code == 200
         assert status.json()["pool"] == "default"
 
-        listing = client.post("/api/queries", json={"type": "pool.list"})
+        listing = client.get("/api/pools/default/members")
         assert listing.status_code == 200
         assert listing.json() == {"pool": "default", "count": 0, "members": []}
 
-        unknown = client.post("/api/commands", json={"type": "nope"})
+        unknown = client.post("/api/jobs", json={"type": "nope"})
         assert unknown.status_code == 400
-        assert "未知命令" in unknown.json()["error"]
+        assert "未知命令" in unknown.json()["error"]["message"]
 
-        submitted = client.post("/api/commands", json={"type": "quotes.sync", "pool": "default"})
-        assert submitted.status_code == 200
+        submitted = client.post("/api/jobs", json={"type": "quotes.sync", "pool": "default"})
+        assert submitted.status_code == 202
         assert submitted.json()["background"] is True
         job_id = submitted.json()["id"]
         _wait_status(engine, job_id, "succeeded")
@@ -54,25 +63,24 @@ def test_health_and_status_and_sync() -> None:
         assert "log" not in listed.json()["jobs"][0]
 
         invalid_background = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={"type": "pool.create", "pool": "hs", "background": True},
         )
         assert invalid_background.status_code == 400
-        assert "不支持后台运行" in invalid_background.json()["error"]
+        assert "不支持后台运行" in invalid_background.json()["error"]["message"]
 
 
 def test_settings_get_and_update() -> None:
     engine = Engine(
-        DispatchRunner(
+        registry(
             {
                 "quotes.sync": FakeRunner(),
                 "settings.update": SettingsRunner(),
             }
         ),
-        handle_query,
     )
     with TestClient(create_app(engine)) as client:
-        current = client.post("/api/queries", json={"type": "settings.get"})
+        current = client.get("/api/settings")
         assert current.status_code == 200
         body = current.json()
         assert body["pool"] == "default"
@@ -85,7 +93,7 @@ def test_settings_get_and_update() -> None:
         assert body["analyze"]["api_key_set"] is False
 
         saved = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "settings": {
@@ -94,7 +102,7 @@ def test_settings_get_and_update() -> None:
                 },
             },
         )
-        assert saved.status_code == 200
+        assert saved.status_code == 202
         job = saved.json()
         assert job["status"] == "succeeded"
         assert job["background"] is False
@@ -102,22 +110,22 @@ def test_settings_get_and_update() -> None:
         assert job["result"]["quotes"]["sync_enabled"] is True
         assert "api_key" not in job["result"]["analyze"]
 
-        again = client.post("/api/queries", json={"type": "settings.get"})
+        again = client.get("/api/settings")
         assert again.json()["adjust"] == "hfq"
         assert again.json()["quotes"]["sleep"] == 0.5
 
         bad = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={"type": "settings.update", "settings": {"adjust": "nope"}},
         )
         assert bad.status_code == 400
-        assert "复权" in bad.json()["error"]
+        assert "复权" in bad.json()["error"]["message"]
 
 
 def test_job_events_stream() -> None:
     engine = Engine(FakeRunner(logs=["one", "two"], result={"done": True}), lambda q: {})
     with TestClient(create_app(engine)) as client:
-        submitted = client.post("/api/commands", json={"type": "quotes.sync"})
+        submitted = client.post("/api/jobs", json={"type": "quotes.sync"})
         job_id = submitted.json()["id"]
         with client.stream("GET", f"/api/jobs/{job_id}/events") as response:
             assert response.status_code == 200
@@ -127,12 +135,13 @@ def test_job_events_stream() -> None:
         assert "succeeded" in payload
 
 
-def test_pool_create_list_delete(tmp_path) -> None:
+def test_pool_create_list_delete(tmp_path, monkeypatch) -> None:
     from astock_control.adapters.pool import PoolRunner
     from astock_core.db import MarketDB
 
     db_path = tmp_path / "market.db"
-    runner = DispatchRunner(
+    monkeypatch.setattr("astock_control.queries.DB_PATH", db_path)
+    runner = registry(
         {
             "quotes.sync": FakeRunner(),
             "pool.create": PoolRunner(db_path),
@@ -147,43 +156,44 @@ def test_pool_create_list_delete(tmp_path) -> None:
                 return {"count": len(pools), "pools": pools}
         return {}
 
-    engine = Engine(runner, query)
+    engine = Engine(runner)
     with TestClient(create_app(engine)) as client:
         created = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={"type": "pool.create", "pool": "hs", "name": "沪深样本"},
         )
-        assert created.status_code == 200
+        assert created.status_code == 202
         assert created.json()["status"] == "succeeded"
         assert created.json()["result"]["pool"] == "hs"
 
-        listed = client.post("/api/queries", json={"type": "pools.list"})
+        listed = client.get("/api/pools")
         ids = [item["id"] for item in listed.json()["pools"]]
         assert "default" in ids
         assert "hs" in ids
 
-        duplicate = client.post("/api/commands", json={"type": "pool.create", "pool": "hs"})
+        duplicate = client.post("/api/jobs", json={"type": "pool.create", "pool": "hs"})
         assert duplicate.json()["status"] == "failed"
 
-        deleted = client.post("/api/commands", json={"type": "pool.delete", "pool": "hs"})
+        deleted = client.post("/api/jobs", json={"type": "pool.delete", "pool": "hs"})
         assert deleted.json()["status"] == "succeeded"
-        again = client.post("/api/queries", json={"type": "pools.list"})
+        again = client.get("/api/pools")
         assert [item["id"] for item in again.json()["pools"]] == ["default"]
 
-        last = client.post("/api/commands", json={"type": "pool.delete", "pool": "default"})
+        last = client.post("/api/jobs", json={"type": "pool.delete", "pool": "default"})
         assert last.json()["status"] == "failed"
         assert "至少保留一个" in (last.json()["error"] or "")
 
 
-def test_stock_catalog_gates_pool_membership(tmp_path) -> None:
+def test_stock_catalog_gates_pool_membership(tmp_path, monkeypatch) -> None:
     from astock_control.adapters.pool import PoolRunner
     from astock_control.adapters.stock import StockRunner
     from astock_core.db import MarketDB
 
     db_path = tmp_path / "market.db"
+    monkeypatch.setattr("astock_control.queries.DB_PATH", db_path)
     stocks = StockRunner(db_path)
     pools = PoolRunner(db_path)
-    runner = DispatchRunner(
+    runner = registry(
         {
             "quotes.sync": FakeRunner(),
             "stock.add": stocks,
@@ -204,49 +214,49 @@ def test_stock_catalog_gates_pool_membership(tmp_path) -> None:
                 return {"pool": raw["pool"], "count": len(members), "members": members}
         return {}
 
-    engine = Engine(runner, query)
+    engine = Engine(runner)
     with TestClient(create_app(engine)) as client:
-        added = client.post("/api/commands", json={"type": "stock.add", "codes": ["000001"]})
+        added = client.post("/api/jobs", json={"type": "stock.add", "codes": ["000001"]})
         assert added.json()["status"] == "succeeded"
         assert added.json()["result"]["added"] == 1
 
-        listed = client.post("/api/queries", json={"type": "stocks.list"})
+        listed = client.get("/api/stocks")
         assert listed.json()["count"] == 1
         assert listed.json()["stocks"][0]["code"] == "000001"
         assert listed.json()["stocks"][0]["pools"] == []
 
         unknown = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={"type": "pool.add", "pool": "default", "codes": ["600519"]},
         )
         assert unknown.json()["status"] == "failed"
         assert "还不在系统里" in (unknown.json()["error"] or "")
 
         in_pool = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={"type": "pool.add", "pool": "default", "codes": ["000001"]},
         )
         assert in_pool.json()["status"] == "succeeded"
 
-        listed = client.post("/api/queries", json={"type": "stocks.list"})
+        listed = client.get("/api/stocks")
         assert listed.json()["in_pool"] == 1
         assert listed.json()["stocks"][0]["pools"][0]["id"] == "default"
 
-        blocked = client.post("/api/commands", json={"type": "stock.remove", "codes": ["000001"]})
+        blocked = client.post("/api/jobs", json={"type": "stock.remove", "codes": ["000001"]})
         assert blocked.json()["status"] == "failed"
         assert "股票池" in (blocked.json()["error"] or "")
 
         out = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={"type": "pool.remove", "pool": "default", "codes": ["000001"]},
         )
         assert out.json()["status"] == "succeeded"
 
-        gone = client.post("/api/commands", json={"type": "stock.remove", "codes": ["000001"]})
+        gone = client.post("/api/jobs", json={"type": "stock.remove", "codes": ["000001"]})
         assert gone.json()["status"] == "succeeded"
         assert gone.json()["result"]["removed"] == 1
 
-        empty = client.post("/api/queries", json={"type": "stocks.list"})
+        empty = client.get("/api/stocks")
         assert empty.json()["count"] == 0
 
 
@@ -268,9 +278,9 @@ def test_cancel_job_endpoint() -> None:
     release = threading.Event()
     engine = Engine(FakeRunner(block=release, started=started), lambda q: {})
     with TestClient(create_app(engine)) as client:
-        first = client.post("/api/commands", json={"type": "quotes.sync", "codes": ["000001"]})
-        second = client.post("/api/commands", json={"type": "quotes.sync", "codes": ["000002"]})
-        assert first.status_code == 200
+        first = client.post("/api/jobs", json={"type": "quotes.sync", "codes": ["000001"]})
+        second = client.post("/api/jobs", json={"type": "quotes.sync", "codes": ["000002"]})
+        assert first.status_code == 202
         assert started.wait(timeout=2)
         cancelled = client.post(f"/api/jobs/{second.json()['id']}/cancel")
         assert cancelled.status_code == 200
@@ -281,7 +291,7 @@ def test_cancel_job_endpoint() -> None:
         _wait_status(engine, first.json()["id"], "succeeded")
         again = client.post(f"/api/jobs/{first.json()['id']}/cancel")
         assert again.status_code == 400
-        assert "已结束" in again.json()["error"]
+        assert "已结束" in again.json()["error"]["message"]
 
 
 def test_duplicate_command_is_rejected() -> None:
@@ -289,11 +299,11 @@ def test_duplicate_command_is_rejected() -> None:
     release = threading.Event()
     engine = Engine(FakeRunner(block=release, started=started), lambda q: {})
     with TestClient(create_app(engine)) as client:
-        first = client.post("/api/commands", json={"type": "quotes.sync"})
-        assert first.status_code == 200
+        first = client.post("/api/jobs", json={"type": "quotes.sync"})
+        assert first.status_code == 202
         assert started.wait(timeout=2)
-        duplicate = client.post("/api/commands", json={"type": "quotes.sync"})
+        duplicate = client.post("/api/jobs", json={"type": "quotes.sync"})
         assert duplicate.status_code == 400
-        assert first.json()["id"] in duplicate.json()["error"]
+        assert first.json()["id"] in duplicate.json()["error"]["message"]
         release.set()
         _wait_status(engine, first.json()["id"], "succeeded")

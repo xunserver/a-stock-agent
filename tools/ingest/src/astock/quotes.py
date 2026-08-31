@@ -4,6 +4,8 @@ import logging
 
 from astock.config import default_adjust, history_start, quote_periods, request_sleep_seconds
 from astock.ingest import ingest_bars, ingest_calendar
+from astock.providers.defaults import default_bar_source, default_calendar_source
+from astock.providers.protocols import BarSource, CalendarSource
 from astock_core.db import INGEST_KINDS, MarketDB
 from astock_core.paths import DEFAULT_POOL_ID
 
@@ -45,9 +47,15 @@ def sync_quotes(
     refresh_calendar: bool = True,
     periods: tuple[str, ...] | None = None,
     start_date: str | None = None,
+    bar_source: BarSource | None = None,
+    calendar_source: CalendarSource | None = None,
 ) -> dict:
     """盘后行情：指定代码或活跃池内，新票拉全历史，其余只补缺口；日/周/月线一并补齐。"""
-    calendar = ingest_calendar(db) if refresh_calendar else 0
+    resolved_bars = bar_source or default_bar_source()
+    resolved_calendar = calendar_source or default_calendar_source()
+    calendar = (
+        ingest_calendar(db, calendar_source=resolved_calendar) if refresh_calendar else 0
+    )
     if codes is None:
         target_codes = db.active_pool_codes(pool_id)
     else:
@@ -95,6 +103,7 @@ def sync_quotes(
                 sleep=resolved_sleep,
                 start_date=resolved_start,
                 period=period,
+                bar_source=resolved_bars,
             )
             if full
             else {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
@@ -107,6 +116,7 @@ def sync_quotes(
                 sleep=resolved_sleep,
                 start_date=resolved_start,
                 period=period,
+                bar_source=resolved_bars,
             )
             if fill
             else {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from astock_core._sqlite import apply_migrations, connect
 from astock_core.paths import system_db_path
 
 
@@ -94,6 +95,18 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _create_automation_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(AUTOMATION_SCHEMA)
+
+
+def _migrate_automation(conn: sqlite3.Connection) -> None:
+    apply_migrations(
+        conn,
+        namespace="automation",
+        migrations=(_create_automation_schema,),
+    )
+
+
 class AutomationStore:
     """Persistent automation definitions, executions, logs and calendar cache."""
 
@@ -101,14 +114,10 @@ class AutomationStore:
         self.path = Path(path) if path else system_db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn:
-            conn.executescript(AUTOMATION_SCHEMA)
+            _migrate_automation(conn)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=5)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        return conn
+        return connect(self.path)
 
     def create_automation(self, values: dict[str, Any]) -> dict[str, Any]:
         now = utc_now()
@@ -383,41 +392,6 @@ class AutomationStore:
             sql += " WHERE " + " AND ".join(where)
         with closing(self._connect()) as conn:
             return int(conn.execute(sql, params).fetchone()[0])
-
-    def replace_calendar(self, trade_dates: list[str], *, source: str) -> None:
-        refreshed = utc_now()
-        with closing(self._connect()) as conn, conn:
-            conn.executemany(
-                """
-                INSERT INTO trading_calendar(trade_date, is_open, source, refreshed_at)
-                VALUES (?, 1, ?, ?)
-                ON CONFLICT(trade_date) DO UPDATE SET
-                    is_open = 1, source = excluded.source, refreshed_at = excluded.refreshed_at
-                """,
-                [(date, source, refreshed) for date in trade_dates],
-            )
-            conn.execute(
-                """
-                INSERT INTO automation_meta(key, value) VALUES ('calendar_refreshed_at', ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """,
-                (refreshed,),
-            )
-
-    def is_trading_day(self, date: str) -> bool | None:
-        with closing(self._connect()) as conn:
-            row = conn.execute(
-                "SELECT is_open FROM trading_calendar WHERE trade_date = ?", (date,)
-            ).fetchone()
-            bounds = conn.execute(
-                "SELECT MIN(trade_date), MAX(trade_date) FROM trading_calendar"
-            ).fetchone()
-        if row:
-            return bool(row["is_open"])
-        if not bounds or bounds[0] is None or date < bounds[0] or date > bounds[1]:
-            return None
-        return False
-
 
 def _dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))

@@ -28,6 +28,14 @@ def _ingest_prefix(pool: str) -> list[str]:
     ]
 
 
+def calendar_sync_argv(command: dict[str, Any] | None = None) -> list[str]:
+    argv = _ingest_prefix(str((command or {}).get("pool") or DEFAULT_POOL_ID))
+    argv.extend(["calendar", "sync"])
+    if command and command.get("force"):
+        argv.append("--force")
+    return argv
+
+
 def quotes_sync_argv(command: dict[str, Any]) -> list[str]:
     argv = _ingest_prefix(str(command.get("pool") or DEFAULT_POOL_ID))
     argv.extend(["quotes", "sync"])
@@ -124,6 +132,7 @@ class IngestRunner:
         {
             "quotes.sync",
             "boards.sync",
+            "calendar.sync",
             "stock.add",
             "stock.sync",
             "pool.add",
@@ -147,6 +156,8 @@ class IngestRunner:
             argv = quotes_sync_argv(command)
         elif typ == "boards.sync":
             argv = boards_sync_argv(command)
+        elif typ == "calendar.sync":
+            argv = calendar_sync_argv(command)
         elif typ in {"stock.add", "stock.remove", "stock.sync"}:
             argv = stock_command_argv(command)
         else:

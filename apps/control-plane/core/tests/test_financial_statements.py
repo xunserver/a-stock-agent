@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from astock_control.protocol import normalize_command, normalize_query
+from astock_control.protocol import normalize_command
 from astock_control.queries import stock_financials_detail_query, stock_get_query
 from astock_core.db import MarketDB
 
@@ -37,22 +37,16 @@ def test_stock_financials_detail_query(tmp_path, monkeypatch) -> None:
                 }
             ],
         )
-    query = normalize_query(
-        {
-            "type": "stock.financials.detail",
-            "code": "000001",
-            "sheet": "profit",
-            "report_date": "2026-06-30",
-        }
-    )
     payload = stock_financials_detail_query(
-        query["code"],
-        sheet=query["sheet"],
-        report_date=query["report_date"],
+        "000001",
+        sheet="profit",
+        report_date="2026-06-30",
     )
     assert payload["report_type"] == "2026中报"
     assert payload["key_items"][0]["label"] == "营业收入"
-    assert payload["payload"]["NETPROFIT"] == 20.0
+    assert payload["key_items"][0]["key"] == "operating_revenue"
+    assert payload["payload"]["net_profit"] == 20.0
+    assert "NETPROFIT" not in payload["payload"]
 
 
 def test_stock_get_includes_statements_summary(tmp_path, monkeypatch) -> None:

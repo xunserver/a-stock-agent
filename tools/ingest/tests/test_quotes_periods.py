@@ -52,7 +52,7 @@ def test_sync_quotes_runs_all_periods(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "market.db"
     seen: list[str] = []
 
-    def fake_calendar(_db):
+    def fake_calendar(_db, **kwargs):
         return 0
 
     def fake_ingest(db, *, codes=None, period="daily", **kwargs):

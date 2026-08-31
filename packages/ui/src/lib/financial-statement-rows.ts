@@ -1,7 +1,12 @@
 import type { FinancialReport } from "@/lib/api"
-import { PERIOD_ENDS, pctClass, fmtPct } from "@/lib/financial-metrics"
+import { pctClass, fmtPct } from "@/lib/financial-metrics"
+import {
+  incrementalPeriodValue,
+  numericValue,
+  pctChange,
+} from "@/lib/financial-periods"
 
-const COMPANION_SUFFIXES = ["_YOY", "_QOQ", "_MOM", "_TZ"] as const
+const COMPANION_SUFFIXES = ["_YOY", "_QOQ", "_MOM", "_TZ", "_yoy", "_qoq", "_mom"] as const
 
 export type StatementRow = {
   key: string
@@ -34,42 +39,6 @@ export function findPriorPeriodDate(
   return dates[index + 1] ?? null
 }
 
-function numericValue(value: number | string | null | undefined): number | null {
-  if (value == null || value === "") {
-    return null
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  return null
-}
-
-function pctChange(current: number | null, base: number | null): number | null {
-  if (
-    current == null ||
-    base == null ||
-    !Number.isFinite(current) ||
-    !Number.isFinite(base) ||
-    base === 0
-  ) {
-    return null
-  }
-  return ((current - base) / Math.abs(base)) * 100
-}
-
-function priorSameYearDate(reportDate: string): string | null {
-  const md = reportDate.slice(5)
-  const periodIndex = PERIOD_ENDS.indexOf(md as (typeof PERIOD_ENDS)[number])
-  if (periodIndex <= 0) {
-    return null
-  }
-  return `${reportDate.slice(0, 4)}-${PERIOD_ENDS[periodIndex - 1]}`
-}
-
 function incrementalValue(
   reportDate: string,
   key: string,
@@ -80,36 +49,10 @@ function incrementalValue(
   if (raw == null) {
     return null
   }
-  const priorDate = priorSameYearDate(reportDate)
-  if (!priorDate || !priorSameYearPayload) {
-    return raw
-  }
-  const previousRaw = numericValue(priorSameYearPayload[key])
-  if (previousRaw == null) {
-    return raw
-  }
-  return raw - previousRaw
-}
-
-function q4IncrementalValue(
-  reportDate: string,
-  key: string,
-  payload: Record<string, number | string | null>,
-  priorSameYearPayload: Record<string, number | string | null> | null
-): number | null {
-  const raw = numericValue(payload[key])
-  if (raw == null) {
-    return null
-  }
-  const q3Payload =
-    priorSameYearPayload && reportDate.endsWith("-12-31")
-      ? priorSameYearPayload
-      : null
-  const q3Raw = q3Payload ? numericValue(q3Payload[key]) : null
-  if (q3Raw == null) {
-    return raw
-  }
-  return raw - q3Raw
+  const previousRaw = priorSameYearPayload
+    ? numericValue(priorSameYearPayload[key])
+    : null
+  return incrementalPeriodValue(reportDate, raw, previousRaw)
 }
 
 function comparisonValue(
@@ -140,14 +83,6 @@ function priorPeriodBaseValue(
   if (sheet === "balance") {
     return numericValue(priorPayload[key])
   }
-  if (priorReportDate.endsWith("-12-31")) {
-    return q4IncrementalValue(
-      priorReportDate,
-      key,
-      priorPayload,
-      priorSameYearPayload
-    )
-  }
   return incrementalValue(
     priorReportDate,
     key,
@@ -171,7 +106,7 @@ export function buildStatementRows(
     payload: Record<string, number | string | null>
     priorPayload?: Record<string, number | string | null> | null
     priorReportDate?: string | null
-    priorSameYearPayload?: Record<string, number | string | null> | null
+    priorPriorPayload?: Record<string, number | string | null> | null
   }
 ): StatementRow[] {
   const {
@@ -180,18 +115,18 @@ export function buildStatementRows(
     payload,
     priorPayload,
     priorReportDate,
-    priorSameYearPayload,
+    priorPriorPayload,
   } = options
 
   return items
     .filter((item) => !isCompanionKey(item.key) && item.kind !== "percent")
     .map((item) => {
       const yoy =
-        numericValue(item.yoy ?? payload[`${item.key}_YOY`]) ??
+        numericValue(item.yoy ?? payload[`${item.key}_yoy`] ?? payload[`${item.key}_YOY`]) ??
         null
       let qoq =
-        numericValue(item.qoq ?? payload[`${item.key}_QOQ`]) ??
-        numericValue(payload[`${item.key}_MOM`])
+        numericValue(item.qoq ?? payload[`${item.key}_qoq`] ?? payload[`${item.key}_QOQ`]) ??
+        numericValue(payload[`${item.key}_mom`] ?? payload[`${item.key}_MOM`])
 
       if (qoq == null && priorPayload && priorReportDate) {
         const current = comparisonValue(
@@ -199,7 +134,7 @@ export function buildStatementRows(
           reportDate,
           item.key,
           payload,
-          priorSameYearPayload ?? null,
+          priorPayload,
           "qoq"
         )
         const base = priorPeriodBaseValue(
@@ -207,7 +142,7 @@ export function buildStatementRows(
           priorReportDate,
           item.key,
           priorPayload,
-          priorSameYearPayload ?? null
+          priorPriorPayload ?? null
         )
         qoq = pctChange(current, base)
       }

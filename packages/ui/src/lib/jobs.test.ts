@@ -123,7 +123,7 @@ describe("jobDisplayName and describeJobParams", () => {
     ).toBe("同步行情 · 600519")
     expect(
       jobDisplayName(job("2", "queued", { name: "", type: "analyze.run" }))
-    ).toBe("运行股票分析")
+    ).toBe("运行 AI 分析")
   })
 
   it("用中文标签描述提交参数", () => {

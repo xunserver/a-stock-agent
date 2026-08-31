@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import json
-import subprocess
 import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
 from astock_core.automation import AutomationStore
-from astock_core.paths import REPO_ROOT
+from astock_core.calendar_store import MarketCalendar, TradingCalendar
 
+from astock_control.adapters.ingest import IngestRunner
 from astock_control.automations import (
     AutomationManager,
     CalendarUnavailable,
@@ -21,7 +21,7 @@ CALENDAR_REFRESH_SECONDS = 24 * 60 * 60
 
 
 class Scheduler:
-    """Turn persistent due automation occurrences into Engine jobs exactly once."""
+    """Turn persistent due automation occurrences into jobs exactly once."""
 
     def __init__(
         self,
@@ -29,14 +29,18 @@ class Scheduler:
         store: AutomationStore,
         *,
         tick_seconds: float = DEFAULT_TICK_SECONDS,
+        calendar: TradingCalendar | None = None,
+        calendar_sync: Callable[[], bool] | None = None,
     ) -> None:
         self.engine = engine
         self.store = store
-        self.manager = AutomationManager(store, engine)
+        self.calendar = calendar or MarketCalendar()
+        self.manager = AutomationManager(store, engine, self.calendar)
         self.tick_seconds = tick_seconds
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_calendar_attempt: datetime | None = None
+        self._calendar_sync = calendar_sync or _invoke_ingest_calendar
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -82,36 +86,14 @@ class Scheduler:
             self._advance(automation, current, scheduled_for if should_run else None)
 
     def refresh_calendar(self) -> bool:
-        """Refresh the A-share calendar using the vendored AkShare environment."""
+        """Refresh the A-share calendar through the ingest process Adapter."""
         self._last_calendar_attempt = datetime.now(timezone.utc)
-        script = (
-            "import json, akshare as ak;"
-            "df=ak.tool_trade_date_hist_sina();"
-            "print(json.dumps([str(x) for x in df['trade_date'].tolist()]))"
-        )
         try:
-            completed = subprocess.run(
-                [
-                    "uv",
-                    "--directory",
-                    str(REPO_ROOT / "tools" / "ingest"),
-                    "run",
-                    "python",
-                    "-c",
-                    script,
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            dates = json.loads(completed.stdout.strip().splitlines()[-1])
-            if not isinstance(dates, list) or not dates:
-                raise ValueError("交易日历为空")
-            self.store.replace_calendar([str(item) for item in dates], source="akshare.sina")
+            if not self._calendar_sync():
+                return False
             self._restore_trading_schedules()
             return True
-        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        except (OSError, RuntimeError, ValueError):
             return False
 
     def _run(self) -> None:
@@ -136,7 +118,7 @@ class Scheduler:
             next_run = calculate_next_run(
                 automation,
                 after=current,
-                store=self.store,
+                calendar=self.calendar,
             )
             status = "ok"
         except CalendarUnavailable as exc:
@@ -159,3 +141,13 @@ class Scheduler:
                 and automation["next_run_at"] is None
             ):
                 self._advance(automation, now, None)
+
+
+def _invoke_ingest_calendar() -> bool:
+    """Run the ingest calendar use case through the existing process Adapter."""
+    result = IngestRunner().run(
+        {"type": "calendar.sync", "force": True},
+        lambda _line: None,
+        timeout=120,
+    )
+    return int(result.get("calendar") or 0) > 0

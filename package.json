@@ -8,7 +8,11 @@
     "dev:desktop": "pnpm --filter desktop dev",
     "build:web": "pnpm --filter ui build",
     "dist:desktop": "pnpm --filter desktop dist",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "test:web": "pnpm --filter @astock/ui test",
+    "test:python": "uv run --directory apps/control-plane/core pytest ../../../packages/core/tests tests && uv run --directory apps/control-plane/cli python -m unittest discover -s tests && uv run --directory tools/ingest pytest && uv run --directory tools/analyze pytest && uv run --directory tools/qlib pytest",
+    "check:architecture": "bash scripts/check-architecture.sh",
+    "check": "pnpm run check:architecture && pnpm run test:web && pnpm run typecheck && pnpm run test:python"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["electron", "esbuild", "electron-winstaller"]

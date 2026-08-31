@@ -9,17 +9,21 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { useLocation } from "react-router"
-
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { JobCancelDialog } from "@/components/job-cancel-dialog"
 import { JobDetailSheet } from "@/components/job-detail-sheet"
 import { JobTracker } from "@/components/job-tracker"
-import { listJobs, cancelJob as requestCancel, type Job } from "@/lib/api"
+import {
+  listJobs,
+  cancelJob as requestCancel,
+  watchJob,
+  type Job,
+} from "@/lib/api"
 import { readDismissedJobs, writeDismissedJobs } from "@/lib/job-dismiss"
+import { queryKeys } from "@/lib/query-keys"
 import {
   isOpenJob,
   selectTrackerJobs,
-  shouldPollJobs,
   SUCCESS_VISIBILITY_MS,
   TRACKER_JOB_LIMIT,
 } from "@/lib/jobs"
@@ -43,10 +47,17 @@ type JobContextValue = {
 const JobContext = createContext<JobContextValue | null>(null)
 
 export function JobProvider({ children }: { children: ReactNode }) {
-  const location = useLocation()
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const jobsQuery = useQuery({
+    queryKey: queryKeys.jobs.list(),
+    queryFn: () => listJobs(),
+  })
+  const jobs = jobsQuery.data ?? []
+  const loading = jobsQuery.isLoading
+  const [streamError, setStreamError] = useState<string | null>(null)
+  const error =
+    streamError ??
+    (jobsQuery.error instanceof Error ? jobsQuery.error.message : null)
   const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
@@ -54,6 +65,7 @@ export function JobProvider({ children }: { children: ReactNode }) {
   const [dismissed, setDismissed] = useState<Set<string>>(readDismissedJobs)
   const [clock, setClock] = useState(Date.now)
   const callbacksRef = useRef(new Map<string, TrackOptions>())
+  const watchersRef = useRef(new Map<string, () => void>())
 
   const settleJob = useCallback((job: Job) => {
     if (job.status !== "succeeded" && job.status !== "failed") return
@@ -67,49 +79,69 @@ export function JobProvider({ children }: { children: ReactNode }) {
 
   const mergeJob = useCallback(
     (job: Job) => {
-      setJobs((current) => [
+      queryClient.setQueryData<Job[]>(queryKeys.jobs.list(), (current = []) => [
         job,
         ...current.filter((item) => item.id !== job.id),
       ])
       settleJob(job)
     },
-    [settleJob]
+    [queryClient, settleJob]
   )
 
   const refreshJobs = useCallback(async () => {
-    const next = await listJobs()
-    setJobs(next)
-    setError(null)
+    const result = await jobsQuery.refetch()
+    if (result.error) throw result.error
+    const next = result.data ?? []
+    setStreamError(null)
     for (const job of next) settleJob(job)
     return next
-  }, [settleJob])
+  }, [jobsQuery, settleJob])
 
   useEffect(() => {
-    let cancelled = false
-    void refreshJobs()
-      .catch((reason: unknown) => {
-        if (!cancelled)
-          setError(reason instanceof Error ? reason.message : "加载任务失败")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    const openIds = new Set(jobs.filter((job) => isOpenJob(job.status)).map((job) => job.id))
+    for (const [jobId, close] of watchersRef.current) {
+      if (!openIds.has(jobId)) {
+        close()
+        watchersRef.current.delete(jobId)
+      }
     }
-  }, [refreshJobs])
+    for (const jobId of openIds) {
+      if (watchersRef.current.has(jobId)) continue
+      const close = watchJob(
+        jobId,
+        (line) => {
+          queryClient.setQueryData<Job[]>(queryKeys.jobs.list(), (current = []) =>
+            current.map((job) =>
+              job.id === jobId
+                ? {
+                    ...job,
+                    log: [...(job.log ?? []), line],
+                    log_count: job.log_count + 1,
+                  }
+                : job
+            )
+          )
+        },
+        (done) => {
+          watchersRef.current.delete(jobId)
+          mergeJob(done)
+        },
+        (message) => {
+          watchersRef.current.delete(jobId)
+          setStreamError(message)
+        }
+      )
+      watchersRef.current.set(jobId, close)
+    }
+  }, [jobs, mergeJob, queryClient])
 
-  const forced = location.pathname === "/jobs"
-  const polling = shouldPollJobs(jobs, dismissed, forced)
-  useEffect(() => {
-    if (!polling) return
-    const timer = window.setInterval(() => {
-      void refreshJobs().catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : "刷新任务失败")
-      })
-    }, 2000)
-    return () => window.clearInterval(timer)
-  }, [polling, refreshJobs])
+  useEffect(
+    () => () => {
+      for (const close of watchersRef.current.values()) close()
+      watchersRef.current.clear()
+    },
+    []
+  )
 
   useEffect(() => {
     const now = Date.now()

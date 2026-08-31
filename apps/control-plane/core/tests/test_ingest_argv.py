@@ -1,6 +1,7 @@
 from astock_control.adapters.ingest import (
     INGEST_DIR,
     boards_sync_argv,
+    calendar_sync_argv,
     parse_trailing_json,
     pool_command_argv,
     quotes_sync_argv,
@@ -119,4 +120,14 @@ def test_parse_json_after_dict_repr_noise() -> None:
         '{\n  "ok": true,\n  "n": 2\n}\n'
     )
     assert parse_trailing_json(text) == {"ok": True, "n": 2}
+
+
+def test_calendar_sync_argv_force() -> None:
+    argv = calendar_sync_argv({"type": "calendar.sync", "force": True})
+    assert argv[:3] == ["uv", "--directory", str(INGEST_DIR)]
+    assert argv[-3:] == ["calendar", "sync", "--force"]
+    assert "--json" in argv
+    default_argv = calendar_sync_argv({"type": "calendar.sync"})
+    assert default_argv[-2:] == ["calendar", "sync"]
+    assert "--force" not in default_argv
 

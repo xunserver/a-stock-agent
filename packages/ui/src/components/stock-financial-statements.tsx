@@ -22,6 +22,7 @@ import {
   pctClass,
   type StatementRow,
 } from "@/lib/financial-statement-rows"
+import { previousSameYearPeriodDate } from "@/lib/financial-periods"
 import { cn } from "@/lib/utils"
 
 const SHEET_LABELS: Record<FinancialStatementSheet, string> = {
@@ -64,18 +65,10 @@ export function StockFinancialStatements({
     [report?.report_date, reports]
   )
 
-  const priorSameYearDate = useMemo(() => {
-    if (!report?.report_date) {
-      return null
-    }
-    const md = report.report_date.slice(5)
-    const ends = ["03-31", "06-30", "09-30", "12-31"] as const
-    const index = ends.indexOf(md as (typeof ends)[number])
-    if (index <= 0) {
-      return null
-    }
-    return `${report.report_date.slice(0, 4)}-${ends[index - 1]}`
-  }, [report?.report_date])
+  const priorPriorDate = useMemo(
+    () => previousSameYearPeriodDate(priorReportDate),
+    [priorReportDate]
+  )
 
   const [sheets, setSheets] = useState<Record<FinancialStatementSheet, SheetState>>(
     () => ({
@@ -163,13 +156,13 @@ export function StockFinancialStatements({
   }, [code, report?.report_date, showQoq, priorReportDate])
 
   // Fetch same-year prior period payloads when needed for incremental QoQ
-  const [sameYearPayloads, setSameYearPayloads] = useState<
+  const [priorPriorPayloads, setPriorPriorPayloads] = useState<
     Partial<Record<FinancialStatementSheet, Record<string, number | string | null>>>
   >({})
 
   useEffect(() => {
-    if (!code || !priorSameYearDate || !showQoq) {
-      setSameYearPayloads({})
+    if (!code || !priorPriorDate || !showQoq) {
+      setPriorPriorPayloads({})
       return
     }
 
@@ -180,7 +173,7 @@ export function StockFinancialStatements({
           try {
             const detail = await queryFinancialDetail(code, {
               sheet,
-              reportDate: priorSameYearDate,
+              reportDate: priorPriorDate,
             })
             return [sheet, detail.payload] as const
           } catch {
@@ -189,7 +182,7 @@ export function StockFinancialStatements({
         })
       )
       if (!cancelled) {
-        setSameYearPayloads(
+        setPriorPriorPayloads(
           Object.fromEntries(entries.filter(([, payload]) => payload != null))
         )
       }
@@ -198,7 +191,7 @@ export function StockFinancialStatements({
     return () => {
       cancelled = true
     }
-  }, [code, priorSameYearDate, showQoq])
+  }, [code, priorPriorDate, showQoq])
 
   if (!report) {
     return null
@@ -222,7 +215,7 @@ export function StockFinancialStatements({
           error={sheets[sheet].error}
           detail={sheets[sheet].detail}
           priorDetail={sheets[sheet].priorDetail}
-          priorSameYearPayload={sameYearPayloads[sheet] ?? null}
+          priorPriorPayload={priorPriorPayloads[sheet] ?? null}
           showYoy={showYoy}
           showQoq={showQoq}
           showComparisons={showComparisons}
@@ -241,7 +234,7 @@ function StatementSection({
   error,
   detail,
   priorDetail,
-  priorSameYearPayload,
+  priorPriorPayload,
   showYoy,
   showQoq,
   showComparisons,
@@ -254,7 +247,7 @@ function StatementSection({
   error: string | null
   detail: FinancialStatementDetail | null
   priorDetail: FinancialStatementDetail | null
-  priorSameYearPayload: Record<string, number | string | null> | null
+  priorPriorPayload: Record<string, number | string | null> | null
   showYoy: boolean
   showQoq: boolean
   showComparisons: boolean
@@ -269,9 +262,9 @@ function StatementSection({
       payload: detail.payload ?? {},
       priorPayload: priorDetail?.payload ?? null,
       priorReportDate,
-      priorSameYearPayload,
+      priorPriorPayload,
     })
-  }, [detail, priorDetail, priorReportDate, priorSameYearPayload, reportDate, sheet])
+  }, [detail, priorDetail, priorReportDate, priorPriorPayload, reportDate, sheet])
 
   const filledCount = rows.filter((row) => row.value != null && row.value !== "").length
 

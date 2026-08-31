@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from astock_control.engine import Engine
+from astock_control.engine import JobService
 from astock_control.protocol import JobCancelled, ProtocolError
 
 
@@ -55,7 +55,12 @@ class FakeRunner:
         return dict(self.result)
 
 
-def _wait_status(engine: Engine, job_id: str, *statuses: str, timeout: float = 2.0):
+def Engine(runner, _removed_query_handler=None, store=None) -> JobService:
+    """Keep individual job tests compact after query dispatch left JobService."""
+    return JobService(runner, repository=store)
+
+
+def _wait_status(engine: JobService, job_id: str, *statuses: str, timeout: float = 2.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         job = engine.get_job(job_id)
@@ -64,22 +69,6 @@ def _wait_status(engine: Engine, job_id: str, *statuses: str, timeout: float = 2
             return job
         time.sleep(0.02)
     raise AssertionError(f"job {job_id} still {engine.get_job(job_id).status}, want {statuses}")
-
-
-def test_query_passes_through() -> None:
-    engine = Engine(FakeRunner(), lambda q: {"echo": q["pool"]})
-    assert engine.query({"type": "status", "pool": "hs300"}) == {"echo": "hs300"}
-
-
-def test_pool_list_query_is_accepted() -> None:
-    engine = Engine(
-        FakeRunner(),
-        lambda q: {"type": q["type"], "include_removed": q.get("include_removed", False)},
-    )
-    assert engine.query({"type": "pool.list", "include_removed": True}) == {
-        "type": "pool.list",
-        "include_removed": True,
-    }
 
 
 def test_unknown_command_rejected() -> None:
@@ -161,11 +150,6 @@ def test_stock_add_normalizes_codes() -> None:
         engine.stop()
 
 
-def test_stocks_list_query_is_accepted() -> None:
-    engine = Engine(FakeRunner(), lambda q: {"type": q["type"]})
-    assert engine.query({"type": "stocks.list"}) == {"type": "stocks.list"}
-
-
 def test_submit_runs_and_keeps_logs() -> None:
     engine = Engine(FakeRunner(logs=["a", "b"], result={"rows": 3}), lambda q: {})
     engine.start()
@@ -226,7 +210,7 @@ def test_submit_sets_name_and_default_timeout() -> None:
         )
         assert many.name == "同步行情 · 4 只"
         analyze = engine.submit({"type": "analyze.run", "code": "600519", "date": "2026-08-27"})
-        assert analyze.name == "运行分析 · 600519 · 2026-08-27"
+        assert analyze.name == "运行 AI 分析 · 600519 · 2026-08-27"
         assert analyze.timeout_seconds == 7200
         immediate = engine.submit({"type": "pool.create", "pool": "demo"})
         assert immediate.name == "创建股票池 · demo"

@@ -71,6 +71,20 @@ uv --directory apps/control-plane/cli run python -m astock_ctl jobs
 
 工具自己的 CLI 仍可直接跑，给 debug 用：`uv --directory tools/ingest run python -m astock …`
 
+### HTTP 与持久化边界
+
+core 使用具名 feature 路由（例如 `GET /api/stocks`、`GET /api/pools`）读取数据，任务统一通过 `POST /api/jobs` 提交；旧的通用 `/api/commands`、`/api/queries` 已删除。任务日志与状态只通过 `/api/jobs/{id}/events` 的 SSE 流实时推送，Web 不再重复轮询。
+
+SQLite schema 按 `market`、`settings`、`automation`、`qlib` namespace 版本化迁移。业务代码只能调用领域 store；只有 schema/migration 测试可直接检查连接。交易日历以 `market.db` 为唯一状态源，日历替换与同步水位在同一事务提交。
+
+改动后在仓库根运行完整验收：
+
+```bash
+pnpm check
+```
+
+其中 `check:architecture` 会禁止生产代码重新引入旧 HTTP 协议、跨层 `.conn`、页面直接 `fetch` 和 Job 轮询。
+
 ### 桌面端发布（Windows）
 
 当前只打 **Windows Electron 壳**（NSIS 安装包）。安装后仍需本机仓库 + `uv` 才能拉起 Python core；自动更新也只更新这个壳。

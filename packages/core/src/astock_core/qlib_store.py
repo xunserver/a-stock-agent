@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from astock_core._sqlite import apply_migrations, connect
 from astock_core.paths import system_db_path
 
 QLIB_SCHEMA = """
@@ -82,6 +83,35 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _create_qlib_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(QLIB_SCHEMA)
+
+
+def _add_workflow_fields(conn: sqlite3.Connection) -> None:
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(qlib_pool_workflows)").fetchall()
+    }
+    for name, ddl in (
+        ("data_end", "ALTER TABLE qlib_pool_workflows ADD COLUMN data_end TEXT"),
+        ("test_start", "ALTER TABLE qlib_pool_workflows ADD COLUMN test_start TEXT"),
+        (
+            "learning_rate",
+            "ALTER TABLE qlib_pool_workflows ADD COLUMN learning_rate REAL",
+        ),
+    ):
+        if name not in columns:
+            conn.execute(ddl)
+
+
+def _migrate_qlib(conn: sqlite3.Connection) -> None:
+    apply_migrations(
+        conn,
+        namespace="qlib",
+        migrations=(_create_qlib_schema, _add_workflow_fields),
+    )
+
+
 class QlibStore:
     """Persistent per-pool workflow defaults and immutable candidate results."""
 
@@ -89,33 +119,10 @@ class QlibStore:
         self.path = Path(path) if path else system_db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn:
-            conn.executescript(QLIB_SCHEMA)
-            self._migrate(conn)
+            _migrate_qlib(conn)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=5)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        return conn
-
-    @staticmethod
-    def _migrate(conn: sqlite3.Connection) -> None:
-        columns = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(qlib_pool_workflows)").fetchall()
-        }
-        for name, ddl in (
-            ("data_end", "ALTER TABLE qlib_pool_workflows ADD COLUMN data_end TEXT"),
-            ("test_start", "ALTER TABLE qlib_pool_workflows ADD COLUMN test_start TEXT"),
-            (
-                "learning_rate",
-                "ALTER TABLE qlib_pool_workflows ADD COLUMN learning_rate REAL",
-            ),
-        ):
-            if name not in columns:
-                conn.execute(ddl)
-        conn.commit()
+        return connect(self.path)
 
     def get_workflow(self, pool_id: str, defaults: dict[str, Any]) -> dict[str, Any]:
         effective = {field: defaults.get(field) for field in WORKFLOW_FIELDS}

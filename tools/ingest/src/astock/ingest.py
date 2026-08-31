@@ -4,8 +4,6 @@ import logging
 import time
 from datetime import date, timedelta
 
-import pandas as pd
-
 from astock.config import (
     default_adjust,
     default_years,
@@ -17,12 +15,39 @@ from astock.config import (
     request_retries,
     request_sleep_seconds,
 )
-from astock import eastmoney
-from astock_core.db import INGEST_KINDS, MarketDB, _ymd
+from astock.providers.defaults import default_bar_source, default_calendar_source, default_instrument_source
+from astock.providers.protocols import BarSource, CalendarSource, InstrumentSource
+from astock_core.db import INGEST_KINDS, MarketDB
+from astock_core.market_data import (
+    Adjustment,
+    AssetType,
+    BarInterval,
+    BarQuery,
+    CalendarQuery,
+    InstrumentId,
+    InstrumentQuery,
+    MarketDataError,
+    from_legacy_symbol,
+)
 from astock_core.paths import DATA_DIR
 from astock_core.session import MARKET_CN_A
 
 logger = logging.getLogger(__name__)
+
+_PERIOD_TO_INTERVAL = {
+    "daily": BarInterval.D1,
+    "weekly": BarInterval.W1,
+    "monthly": BarInterval.M1,
+}
+_PERIOD_LABEL = {"daily": "日", "weekly": "周", "monthly": "月"}
+_INDEX_PREFIX_EXCHANGE = {
+    "sh": "XSHG",
+    "sz": "XSHE",
+    "bj": "BSE",
+    "csi": "XSHG",
+}
+_CALENDAR_START = date(1990, 1, 1)
+_CALENDAR_HORIZON_YEARS = 2
 
 
 def _today_yyyymmdd() -> str:
@@ -32,6 +57,30 @@ def _today_yyyymmdd() -> str:
 def _next_day_yyyymmdd(iso_date: str) -> str:
     dt = date.fromisoformat(iso_date) + timedelta(days=1)
     return dt.strftime("%Y%m%d")
+
+
+def _parse_yyyymmdd(text: str) -> date:
+    compact = text.replace("-", "")[:8]
+    return date(int(compact[:4]), int(compact[4:6]), int(compact[6:8]))
+
+
+def _adjustment_from_persist(adjust: str) -> Adjustment:
+    if adjust in ("", "raw"):
+        return Adjustment.RAW
+    return Adjustment(adjust)
+
+
+def instrument_id_for_index_code(code: str) -> InstrumentId | None:
+    """Parse a persisted index code such as ``sh000300`` into an InstrumentId."""
+    lower = str(code).strip().lower()
+    for prefix, exchange in _INDEX_PREFIX_EXCHANGE.items():
+        if not lower.startswith(prefix):
+            continue
+        symbol = lower[len(prefix) :]
+        if symbol.isdigit() and 1 <= len(symbol) <= 6:
+            return InstrumentId(country="CN", exchange=exchange, symbol=symbol.zfill(6))
+        return None
+    return None
 
 
 def _call(fn, *args, retries: int | None = None, **kwargs):
@@ -54,33 +103,33 @@ def ingest_calendar(
     *,
     force: bool = False,
     market_id: str = MARKET_CN_A,
+    calendar_source: CalendarSource | None = None,
 ) -> int:
-    import akshare as ak
-
     if not force and db.calendar_synced_today(market_id=market_id):
         logger.info("交易日历今日已同步，跳过")
         return 0
 
+    source = calendar_source or default_calendar_source()
+    today = date.today()
+    query = CalendarQuery(
+        market_id=market_id,
+        start=_CALENDAR_START,
+        end=date(today.year + _CALENDAR_HORIZON_YEARS, 12, 31),
+    )
     logger.info("拉取交易日历")
-    frame = _call(ak.tool_trade_date_hist_sina)
-    dates = frame["trade_date"].tolist()
-    n = db.replace_calendar(dates, market_id=market_id)
-    db.mark_calendar_synced(market_id=market_id, rows=n)
+    dataset = source.fetch_calendar(query)
+    if not any(day.is_open and day.market_id == market_id for day in dataset.items):
+        raise ValueError("交易日历为空")
+    n = db.upsert_trading_days(dataset.items, market_id=market_id)
     logger.info("交易日历写入 %s 条", n)
     return n
 
 
-def ingest_stocks(db: MarketDB) -> int:
-    import akshare as ak
-
-    logger.info("拉取沪深京 A 股列表（东财快照）")
-    frame = _call(ak.stock_zh_a_spot_em)
-    stocks = [
-        (str(code).zfill(6), str(name))
-        for code, name in zip(frame["代码"], frame["名称"], strict=True)
-        if str(code).strip()
-    ]
-    n = db.replace_stocks(stocks)
+def ingest_stocks(db: MarketDB, *, instrument_source: InstrumentSource | None = None) -> int:
+    source = instrument_source or default_instrument_source()
+    logger.info("拉取沪深京 A 股列表")
+    dataset = source.fetch_instruments(InstrumentQuery(asset_types=(AssetType.STOCK,)))
+    n = db.upsert_instruments(dataset.items)
     logger.info("股票列表写入 %s 只", n)
     return n
 
@@ -135,7 +184,9 @@ def ingest_indexes(
     *,
     indexes: tuple[tuple[str, str], ...] | None = None,
     start_date: str | None = None,
+    bar_source: BarSource | None = None,
 ) -> int:
+    source = bar_source or default_bar_source()
     total = 0
     end = _today_yyyymmdd()
     begin = start_date or history_start()
@@ -147,152 +198,42 @@ def ingest_indexes(
             logger.info("指数 %s 已是最新", code)
             continue
         logger.info("拉取指数 %s %s  %s -> %s", code, name, start, end)
-        frame = _call(eastmoney.index_daily, code, start, end)
-        rows = []
-        for item in frame.itertuples(index=False):
-            rows.append(
-                (
-                    code,
-                    name,
-                    _ymd(item.date),
-                    float(item.open) if pd.notna(item.open) else None,
-                    float(item.close) if pd.notna(item.close) else None,
-                    float(item.high) if pd.notna(item.high) else None,
-                    float(item.low) if pd.notna(item.low) else None,
-                    float(item.volume) if pd.notna(item.volume) else None,
-                    float(item.amount) if pd.notna(item.amount) else None,
+        instrument_id = instrument_id_for_index_code(code)
+        try:
+            if instrument_id is None:
+                bars = ()
+            else:
+                dataset = source.fetch_bars(
+                    BarQuery(
+                        instruments=(instrument_id,),
+                        start=_parse_yyyymmdd(start),
+                        end=_parse_yyyymmdd(end),
+                        interval=BarInterval.D1,
+                        adjustment=Adjustment.RAW,
+                    )
                 )
+                bars = dataset.items
+            written = db.upsert_standard_index_bars(bars, code=code, name=name)
+            last_date = bars[-1].trade_date.isoformat() if bars else last
+            status = "ok" if bars else "empty"
+            db.mark_ingest(
+                code,
+                "index",
+                status,
+                adjust="",
+                last_trade_date=last_date,
+                rows=written,
             )
-        written = db.upsert_index_bars(rows)
-        last_date = rows[-1][2] if rows else last
-        status = "ok" if rows else "empty"
-        db.mark_ingest(
-            code,
-            "index",
-            status,
-            adjust="",
-            last_trade_date=last_date,
-            rows=written,
-        )
-        total += written
+            total += written
+        except MarketDataError as exc:
+            db.mark_ingest(code, "index", "error", adjust="", error=str(exc)[:500])
+            logger.warning("指数 %s 失败: %s", code, exc)
+        except Exception as exc:
+            db.mark_ingest(code, "index", "error", adjust="", error=str(exc)[:500])
+            logger.warning("指数 %s 失败: %s", code, exc)
         time.sleep(request_sleep_seconds())
     logger.info("指数日线写入 %s 条", total)
     return total
-
-
-def _bars_from_frame(code: str, frame: pd.DataFrame, adjust: str) -> list[tuple]:
-    rows: list[tuple] = []
-    for item in frame.itertuples(index=False):
-        rows.append(
-            (
-                code,
-                _ymd(getattr(item, "日期")),
-                _num(getattr(item, "开盘")),
-                _num(getattr(item, "收盘")),
-                _num(getattr(item, "最高")),
-                _num(getattr(item, "最低")),
-                _num(getattr(item, "成交量")),
-                _num(getattr(item, "成交额")),
-                _num(getattr(item, "振幅")),
-                _num(getattr(item, "涨跌幅")),
-                _num(getattr(item, "涨跌额")),
-                _num(getattr(item, "换手率")),
-                adjust,
-            )
-        )
-    return rows
-
-
-def _num(value: object) -> float | None:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _fetch_stock_bars(
-    code: str,
-    start: str,
-    end: str,
-    adjust: str,
-    period: str = "daily",
-) -> pd.DataFrame:
-    if period not in INGEST_KINDS:
-        raise ValueError(f"不支持的 K 线周期: {period}")
-    try:
-        return eastmoney.stock_kline(code, start, end, adjust=adjust, period=period)
-    except Exception as exc:
-        logger.warning("东财%s线失败 %s，改用 AKShare：%s", period, code, exc)
-
-    import akshare as ak
-
-    if period == "daily":
-        try:
-            frame = ak.stock_zh_a_hist_tx(
-                symbol=code,
-                start_date=start,
-                end_date=end,
-                adjust=adjust,
-            )
-            if frame is not None and not frame.empty:
-                renamed = frame.rename(
-                    columns={
-                        "date": "日期",
-                        "open": "开盘",
-                        "close": "收盘",
-                        "high": "最高",
-                        "low": "最低",
-                        "volume": "成交量",
-                        "amount": "成交额",
-                    }
-                )
-                renamed["股票代码"] = code
-                renamed["振幅"] = None
-                renamed["涨跌幅"] = None
-                renamed["涨跌额"] = None
-                renamed["换手率"] = renamed["turnover"] if "turnover" in renamed.columns else None
-                return renamed
-        except Exception as exc:
-            logger.warning("腾讯日线失败 %s，改用新浪：%s", code, exc)
-
-        prefix = "sh" if code.startswith("6") else "sz"
-        frame = ak.stock_zh_a_daily(symbol=f"{prefix}{code}", adjust=adjust)
-        if frame is None or frame.empty:
-            return pd.DataFrame()
-        renamed = frame.rename(
-            columns={
-                "date": "日期",
-                "open": "开盘",
-                "close": "收盘",
-                "high": "最高",
-                "low": "最低",
-                "volume": "成交量",
-                "amount": "成交额",
-            }
-        )
-        start_iso = f"{start[:4]}-{start[4:6]}-{start[6:8]}"
-        end_iso = f"{end[:4]}-{end[4:6]}-{end[6:8]}"
-        dates = pd.to_datetime(renamed["日期"], errors="coerce")
-        renamed = renamed[(dates >= start_iso) & (dates <= end_iso)]
-        renamed["股票代码"] = code
-        renamed["振幅"] = None
-        renamed["涨跌幅"] = None
-        renamed["涨跌额"] = None
-        renamed["换手率"] = renamed["turnover"] if "turnover" in renamed.columns else None
-        return renamed
-
-    frame = ak.stock_zh_a_hist(
-        symbol=code,
-        period=period,
-        start_date=start,
-        end_date=end,
-        adjust=adjust,
-    )
-    if frame is None or frame.empty:
-        return pd.DataFrame()
-    return frame
 
 
 def ingest_bars(
@@ -304,12 +245,14 @@ def ingest_bars(
     sleep: float | None = None,
     start_date: str | None = None,
     period: str = "daily",
+    bar_source: BarSource | None = None,
 ) -> dict[str, int]:
     periods = quote_periods()
     if period not in INGEST_KINDS:
         raise ValueError(f"不支持的 K 线周期: {period}")
     if period not in periods:
         raise ValueError(f"设置未启用的 K 线周期: {period}")
+    interval = _PERIOD_TO_INTERVAL[period]
     ingest_kind = INGEST_KINDS[period]
     universe = codes if codes is not None else db.stock_codes()
     if limit is not None:
@@ -319,11 +262,13 @@ def ingest_bars(
     resolved_adjust = default_adjust() if adjust is None else adjust
     resolved_sleep = request_sleep_seconds() if sleep is None else sleep
     history = start_date or history_start()
+    source = bar_source or default_bar_source()
+    adjustment = _adjustment_from_persist(resolved_adjust)
     stats = {"ok": 0, "skip": 0, "empty": 0, "error": 0, "rows": 0}
     total = len(universe)
     logger.info(
         "开始逐只拉取%s线：%s 只，复权=%s，起点=%s，截止交易日=%s",
-        {"daily": "日", "weekly": "周", "monthly": "月"}.get(period, period),
+        _PERIOD_LABEL.get(period, period),
         total,
         resolved_adjust,
         history,
@@ -339,15 +284,27 @@ def ingest_bars(
         if start < history:
             start = history
         try:
-            frame = _call(_fetch_stock_bars, code, start, end, resolved_adjust, period)
-            rows = (
-                _bars_from_frame(code, frame, resolved_adjust)
-                if frame is not None and not frame.empty
-                else []
+            dataset = source.fetch_bars(
+                BarQuery(
+                    instruments=(from_legacy_symbol(code),),
+                    start=_parse_yyyymmdd(start),
+                    end=_parse_yyyymmdd(end),
+                    interval=interval,
+                    adjustment=adjustment,
+                )
             )
-            written = db.upsert_bars(rows, period=period)
-            last_date = rows[-1][1] if rows else last
-            status = "ok" if rows else "empty"
+            bars = dataset.items
+            if dataset.warnings or not dataset.complete:
+                logger.warning(
+                    "股票 %s %s线 Dataset 不完整 complete=%s warnings=%s",
+                    code,
+                    period,
+                    dataset.complete,
+                    dataset.warnings,
+                )
+            written = db.upsert_standard_bars(bars)
+            last_date = bars[-1].trade_date.isoformat() if bars else last
+            status = "ok" if bars else "empty"
             db.mark_ingest(
                 code,
                 ingest_kind,
@@ -370,6 +327,12 @@ def ingest_bars(
                     stats["empty"],
                     stats["error"],
                 )
+        except MarketDataError as exc:
+            db.mark_ingest(
+                code, ingest_kind, "error", adjust=resolved_adjust, error=str(exc)[:500]
+            )
+            stats["error"] += 1
+            logger.warning("股票 %s %s线失败: %s", code, period, exc)
         except Exception as exc:
             db.mark_ingest(
                 code, ingest_kind, "error", adjust=resolved_adjust, error=str(exc)[:500]
@@ -387,17 +350,21 @@ def ingest_hs300(
     limit: int | None = None,
     sleep: float | None = None,
     adjust: str | None = None,
+    bar_source: BarSource | None = None,
+    calendar_source: CalendarSource | None = None,
 ) -> dict[str, int]:
     resolved_years = default_years() if years is None else years
     start_date = _years_start(resolved_years)
     index_code = hs300_index_code()
+    resolved_bars = bar_source or default_bar_source()
     result = {
-        "calendar": ingest_calendar(db),
+        "calendar": ingest_calendar(db, calendar_source=calendar_source),
         "hs300_members": ingest_hs300_members(db),
         "indexes": ingest_indexes(
             db,
             indexes=((index_code, "沪深300"),),
             start_date=start_date,
+            bar_source=resolved_bars,
         ),
     }
     codes = db.universe_codes("hs300")
@@ -409,6 +376,7 @@ def ingest_hs300(
             adjust=adjust,
             sleep=sleep,
             start_date=start_date,
+            bar_source=resolved_bars,
         )
     )
     result["start_date"] = start_date
@@ -422,14 +390,18 @@ def ingest_all(
     codes: list[str] | None = None,
     limit: int | None = None,
     skip_bars: bool = False,
+    bar_source: BarSource | None = None,
+    calendar_source: CalendarSource | None = None,
+    instrument_source: InstrumentSource | None = None,
 ) -> dict[str, int]:
+    resolved_bars = bar_source or default_bar_source()
     result = {
-        "calendar": ingest_calendar(db),
-        "stocks": ingest_stocks(db),
-        "indexes": ingest_indexes(db),
+        "calendar": ingest_calendar(db, calendar_source=calendar_source),
+        "stocks": ingest_stocks(db, instrument_source=instrument_source),
+        "indexes": ingest_indexes(db, bar_source=resolved_bars),
     }
     if not skip_bars:
-        result.update(ingest_bars(db, codes=codes, limit=limit))
+        result.update(ingest_bars(db, codes=codes, limit=limit, bar_source=resolved_bars))
     return result
 
 

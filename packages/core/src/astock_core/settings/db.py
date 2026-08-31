@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from astock_core._sqlite import apply_migrations, connect
 from astock_core.paths import control_json_path, system_db_path
 from astock_core.settings.catalog import SCHEMA_VERSION, find_section, iter_sections, live_paths, settings_catalog
 from astock_core.settings.validate import merge_section_patch, secret_fields, validate_against_schema
@@ -59,15 +60,26 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _create_settings_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(SCHEMA)
+
+
+def _migrate_settings(conn: sqlite3.Connection) -> None:
+    apply_migrations(
+        conn,
+        namespace="settings",
+        migrations=(_create_settings_schema,),
+    )
+
+
 class SystemDB:
     """SQLite 系统库：设置 schema 与取值。与行情库 market.db 分开。"""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path else system_db_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA)
+        self.conn = connect(self.path)
+        _migrate_settings(self.conn)
         self._seed_catalog()
         self._migrate_control_json()
         self._refresh_computed()

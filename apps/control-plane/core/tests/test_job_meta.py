@@ -71,5 +71,5 @@ def test_build_job_name_for_quotes_and_stock() -> None:
         build_job_name(
             normalize_command({"type": "analyze.run", "code": "600519", "date": "2026-08-27"})
         )
-        == "运行分析 · 600519 · 2026-08-27"
+        == "运行 AI 分析 · 600519 · 2026-08-27"
     )

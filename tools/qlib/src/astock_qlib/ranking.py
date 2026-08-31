@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pickle
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
+from astock_core.db import MarketDB
 from astock_core.paths import DB_PATH, REPO_ROOT
 
 
@@ -57,9 +57,8 @@ def scores_from_frame(
         day = matches[0]
     ranked = df.xs(day).sort_values("score", ascending=False).head(n)
 
-    names = dict(
-        sqlite3.connect(DB_PATH).execute("SELECT code, name FROM stocks").fetchall()
-    )
+    with MarketDB(DB_PATH) as db:
+        names = db.stock_names()
     rows = []
     for i, (inst, row) in enumerate(ranked.iterrows(), start=1):
         code6 = str(inst)[-6:]

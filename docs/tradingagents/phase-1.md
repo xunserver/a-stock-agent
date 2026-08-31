@@ -20,7 +20,7 @@
 
 - 一次完整图是多轮 LLM，命令行盯日志不合适，现有 job + SSE 才是给人看的
 - 密钥、模型、分析师组合如果只能改 `.env`，以后每次换模型都要离开 UI
-- 管控面已经有「设置写入 `data/control.json`、长任务走 `/api/commands` + `/api/jobs/{id}/events`」这条路，ingest 的 `quotes.sync` 就是先例
+- 管控面已经有「设置写入版本化 system DB、长任务走 `POST /api/jobs` + `/api/jobs/{id}/events`」这条路，ingest 的 `quotes.sync` 就是先例
 - 「任务」页现在是占位。不做它，分析跑到一半一刷新就找不回来
 
 第 1 期仍然**不做**：批量全池扫描、接 `market.db` 行情、接 Qlib 候选、财报/公告入库、social 分析师（Reddit / StockTwits 对 A 股无意义）。
@@ -39,16 +39,16 @@
 
 | 能力 | 现在怎样 | 第 1 期怎么用 |
 |------|----------|----------------|
-| `POST /api/commands` | 提交任务，立即返回 Job | 新命令 `analyze.run` |
-| `GET /api/jobs`、`GET /api/jobs/{id}` | core 内存里的任务 | 任务页列表；分析页重连进行中的任务 |
+| `POST /api/jobs` | 提交任务，立即返回 Job | 任务类型 `analyze.run` |
+| `GET /api/jobs`、`GET /api/jobs/{id}` | 持久化任务仓库 | 任务页列表；分析页重连进行中的任务 |
 | `GET /api/jobs/{id}/events` | SSE 推日志直到 succeeded/failed | 分析页实时日志 |
-| `POST /api/queries` `settings.get` | 读 `data/control.json` | 设置页读 `analyze` 段 |
+| `GET /api/settings` | 读版本化设置库 | 设置页读 `analyze` 段 |
 | `settings.update` | **立即执行**，不排队 | 改 LLM 配置不能卡在正在跑的分析后面 |
 | `IngestRunner` | `uv --directory tools/ingest run ...`，stderr 进 job.log，stdout 末尾 JSON | `AnalyzeRunner` 原样抄 |
-| Engine | **单 worker 串行**，日志最多 2000 行，任务最多 100 条，进程一停就没了 | 分析排队即可；研报必须另写磁盘，不能只活在 Job 里 |
+| JobService / Executor | **单 worker 串行**，状态与日志持久化 | 分析排队即可；研报仍另写磁盘，不能只活在 Job 里 |
 | 网页 | 股票池可用；股票 / Qlib / 任务都是占位；设置只有行情和调度 | 新「分析」页；把任务页做真；设置加分析段 |
 
-core 只绑 `127.0.0.1`。密钥进 `data/control.json` 可以接受：这个文件已经在 `.gitignore`，不进 git。读接口必须脱敏，日志里不能出现密钥。
+core 只绑 `127.0.0.1`。密钥保存在本地设置库且不进 git；读接口必须脱敏，日志里不能出现密钥。
 
 ### 上游能直接用的接口
 
@@ -454,7 +454,7 @@ uv --directory tools/analyze run python -m astock_analyze --json run --code ... 
 - 主按钮「开始分析」。进行中 disable，并显示 Spinner
 - 未配密钥：按钮 disable + FieldDescription 链到 `/settings`
 
-提交：`POST /api/commands` `{ type: "analyze.run", pool, code, date, analysts }`，不要 `waitForJob` 卡死整页（分析可能 10–30 分钟）。提交后用现成的 `watchJob` 拉 SSE。
+提交：`POST /api/jobs` `{ type: "analyze.run", pool, code, date, analysts }`，不要等待任务完成而卡死整页（分析可能 10–30 分钟）。实时状态统一由 `JobProvider` 的 SSE 状态源提供。
 
 Engine 串行：若已有 `running` 任务，仍允许提交（进入 queued），按钮旁写「当前有任务在跑，会排队」。可用 `GET /api/jobs` 判断。
 
@@ -485,8 +485,8 @@ Engine 串行：若已有 `running` 任务，仍允许提交（进入 queued）�
 
 - 表格：id、type、status、创建时间、结束时间、error 摘要
 - 点行展开或进 `/jobs/:id`：日志 ScrollArea + 若是 `analyze.run` 且成功，链到 `/analyze?code=&date=&run=`
-- 轮询 `GET /api/jobs`（2s）或对 running 的那条开 SSE。列表不必每条都 SSE
-- 空状态说明：任务只活在 core 内存里，重启 core 列表会空，报告仍在分析页
+- 初始列表读取 `GET /api/jobs`，进行中的任务统一由共享 SSE 状态源更新，不在页面重复轮询
+- 空状态说明：任务和日志会持久化；进程重启时未完成任务会被明确标记为中断
 
 第 1 期可以不做独立 `/jobs/:id` 路由，用 Sheet 或页内展开。有 `sheet` 组件。
 
@@ -519,8 +519,8 @@ astock_ctl analyze show --code 000001 --date 2026-08-25
 
 ```
 浏览器 /analyze
-  → POST /api/commands  {type: analyze.run, code, date}
-  → Engine 入队
+  → POST /api/jobs  {type: analyze.run, code, date}
+  → JobService 入队
   → AnalyzeRunner
        读 settings.analyze（含密钥）
        env 注入后：

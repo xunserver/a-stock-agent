@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import queue
 import threading
-from collections.abc import Callable
 from typing import Any
 
 from astock_core.automation import AutomationStore
 
 from astock_control.config import load_settings, preview_section, preview_update
+from astock_control.job_repository import JobRepository
+from astock_control.job_executor import JobExecutor
 from astock_control.protocol import (
     IMMEDIATE_COMMANDS,
     OPEN_JOB_STATUSES,
@@ -19,7 +19,6 @@ from astock_control.protocol import (
     build_job_name,
     new_job_id,
     normalize_command,
-    normalize_query,
     parse_command_submission,
     resolve_job_background,
     resolve_job_timeout,
@@ -31,57 +30,28 @@ JOB_LIMIT = 100
 STOP_JOIN_SECONDS = 8
 
 
-class DispatchRunner:
-    """Route a command to the runner registered for its type."""
-
-    def __init__(self, mapping: dict[str, Runner]) -> None:
-        self._mapping = mapping
-
-    def run(
-        self,
-        command: dict[str, Any],
-        on_log: Callable[[str], None],
-        *,
-        timeout: float | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> dict[str, Any]:
-        typ = str(command.get("type") or "")
-        runner = self._mapping.get(typ)
-        if runner is None:
-            raise ValueError(f"没有执行器: {typ}")
-        return runner.run(command, on_log, timeout=timeout, cancel_event=cancel_event)
-
-
-class Engine:
+class JobService:
     """Serial job runner. Callers submit commands; one worker executes them."""
 
     def __init__(
         self,
         runner: Runner,
-        query_handler: Callable[[dict[str, Any]], dict[str, Any]],
-        store: AutomationStore | None = None,
+        repository: JobRepository | None = None,
     ) -> None:
         self._runner = runner
-        self._query_handler = query_handler
         self._jobs: dict[str, Job] = {}
         self._order: list[str] = []
-        self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.Lock()
         self._cv = threading.Condition(self._lock)
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
         self._cancel_events: dict[str, threading.Event] = {}
-        self.store = store or AutomationStore()
-        self.store.recover_open_jobs()
+        self.repository = repository or AutomationStore()
+        self.repository.recover_open_jobs()
+        self._executor = JobExecutor(self._execute, join_seconds=STOP_JOIN_SECONDS)
 
     def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._worker, name="astock-control-worker", daemon=True
-        )
-        self._thread.start()
+        self._executor.start()
 
     def stop(self) -> None:
         events: list[threading.Event] = []
@@ -95,10 +65,7 @@ class Engine:
         for event in events:
             event.set()
         self._stop.set()
-        self._queue.put(None)
-        if self._thread is not None:
-            self._thread.join(timeout=STOP_JOIN_SECONDS)
-            self._thread = None
+        self._executor.stop()
 
     def submit(
         self,
@@ -161,7 +128,7 @@ class Engine:
                 raise ProtocolError(f"已有相同任务在排队或运行：{duplicate.id}")
             self._jobs[job.id] = job
             self._order.append(job.id)
-            if not self.store.record_job(job.to_dict(include_log=False)):
+            if not self.repository.record_job(job.to_dict(include_log=False)):
                 self._jobs.pop(job.id, None)
                 self._order.remove(job.id)
                 raise ProtocolError("该自动任务的计划时刻已经提交")
@@ -173,19 +140,15 @@ class Engine:
             done = self.get_job(job.id)
             assert done is not None
             return done
-        self._queue.put(job.id)
+        self._executor.submit(job.id)
         return job
-
-    def query(self, raw: dict[str, Any]) -> dict[str, Any]:
-        settings = load_settings()
-        return self._query_handler(normalize_query(raw, default_pool=settings["pool"]))
 
     def get_job(self, job_id: str) -> Job | None:
         with self._lock:
             job = self._jobs.get(job_id)
             if job is not None and job.status not in TERMINAL_JOB_STATUSES:
                 return self._copy_job(job)
-        stored = self.store.get_job(job_id)
+        stored = self.repository.get_job(job_id)
         return None if stored is None else self._job_from_dict(stored)
 
     def list_jobs(
@@ -198,7 +161,7 @@ class Engine:
         offset: int = 0,
     ) -> list[Job]:
         requested_limit = max(1, limit)
-        stored = self.store.list_jobs(
+        stored = self.repository.list_jobs(
             automation_id=automation_id,
             date=date,
             trigger=trigger,
@@ -237,24 +200,17 @@ class Engine:
         with self._cv:
             job = self._jobs.get(job_id)
             if job is None:
-                stored = self.store.get_job(job_id)
+                stored = self.repository.get_job(job_id)
                 return None if stored is None else self._job_from_dict(stored)
             if len(job.log) > log_count or job.status in TERMINAL_JOB_STATUSES:
                 if job.status in TERMINAL_JOB_STATUSES:
-                    stored = self.store.get_job(job_id)
+                    stored = self.repository.get_job(job_id)
                     if stored is not None:
                         return self._job_from_dict(stored)
                 return self._copy_job(job)
             self._cv.wait(timeout=timeout)
             job = self._jobs.get(job_id)
             return None if job is None else self._copy_job(job)
-
-    def _worker(self) -> None:
-        while not self._stop.is_set():
-            job_id = self._queue.get()
-            if job_id is None or self._stop.is_set():
-                continue
-            self._execute(job_id)
 
     def _execute(self, job_id: str) -> None:
         with self._cv:
@@ -315,7 +271,7 @@ class Engine:
                 return
             job.log.append(line)
             seq = job.persisted_log_count
-            self.store.append_job_log(job_id, seq, line)
+            self.repository.append_job_log(job_id, seq, line)
             job.persisted_log_count += 1
             if len(job.log) > LOG_LIMIT:
                 job.log = job.log[-LOG_LIMIT:]
@@ -369,7 +325,7 @@ class Engine:
         )
 
     def _persist_job(self, job: Job) -> None:
-        self.store.update_job(job.to_dict(include_log=False))
+        self.repository.update_job(job.to_dict(include_log=False))
 
     @staticmethod
     def _job_from_dict(raw: dict[str, Any]) -> Job:

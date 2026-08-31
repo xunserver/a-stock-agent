@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from astock_control.adapters.analyze import ANALYZE_DIR, analyze_child_env, analyze_run_argv
-from astock_control.protocol import ProtocolError, normalize_command, normalize_query
-from astock_control.queries import handle_query
+from astock_control.protocol import ProtocolError, normalize_command
+from astock_control.queries import analyze_get_query, analyze_list_query
 from astock_core.db import MarketDB
 from astock_core.paths import REPO_ROOT
 
@@ -48,16 +48,6 @@ def test_analyze_run_rejects_empty_analysts() -> None:
 def test_analyze_run_rejects_multiple_codes() -> None:
     with pytest.raises(ProtocolError, match="恰好"):
         normalize_command({"type": "analyze.run", "code": "000001,600519"})
-
-
-def test_analyze_list_and_get_queries_normalize() -> None:
-    listed = normalize_query({"type": "analyze.list", "code": "1"})
-    assert listed == {"type": "analyze.list", "code": "000001"}
-    got = normalize_query(
-        {"type": "analyze.get", "code": "000001", "date": "2026-08-25", "run_id": "abc"}
-    )
-    assert got["date"] == "2026-08-25"
-    assert got["run_id"] == "abc"
 
 
 def test_analyze_argv_has_no_secret() -> None:
@@ -180,7 +170,7 @@ def test_analyze_list_and_get(tmp_path, monkeypatch) -> None:
         decision="Sell",
     )
 
-    listed = handle_query({"type": "analyze.list"})
+    listed = analyze_list_query()
     assert listed["count"] == 3
     assert [item["run_id"] for item in listed["reports"]] == ["newrun", "other", "oldrun"]
     first = listed["reports"][0]
@@ -190,11 +180,11 @@ def test_analyze_list_and_get(tmp_path, monkeypatch) -> None:
     assert first["report_dir"] == str(newer)
     assert "complete_report" not in first
 
-    filtered = handle_query({"type": "analyze.list", "code": "000001"})
+    filtered = analyze_list_query(code="000001")
     assert filtered["count"] == 2
     assert all(item["code"] == "000001" for item in filtered["reports"])
 
-    got = handle_query({"type": "analyze.get", "code": "000001", "date": "2026-08-25"})
+    got = analyze_get_query(code="000001", date="2026-08-25")
     assert got["run_id"] == "newrun"
     assert got["name"] == "平安银行"
     assert got["complete_report"] == "全文"
@@ -203,9 +193,7 @@ def test_analyze_list_and_get(tmp_path, monkeypatch) -> None:
     assert "news" not in got
     assert got["report_dir"] == str(newer)
 
-    specific = handle_query(
-        {"type": "analyze.get", "code": "000001", "date": "2026-08-24", "run_id": "oldrun"}
-    )
+    specific = analyze_get_query(code="000001", date="2026-08-24", run_id="oldrun")
     assert specific["run_id"] == "oldrun"
     assert specific["decision"] == "Buy"
     assert "complete_report" not in specific
@@ -216,4 +204,4 @@ def test_analyze_get_missing_raises(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("astock_control.queries.ANALYZE_DIR", tmp_path)
     monkeypatch.setattr("astock_control.queries.DB_PATH", tmp_path / "missing.db")
     with pytest.raises(ValueError, match="找不到分析报告"):
-        handle_query({"type": "analyze.get", "code": "000001", "date": "2026-08-25"})
+        analyze_get_query(code="000001", date="2026-08-25")

@@ -67,13 +67,8 @@ class PoolRunner:
             codes = [str(code) for code in command.get("codes") or []]
             on_log(f"加入 {','.join(codes)}")
             with MarketDB(self._db_path) as db:
-                members: list[tuple[str, str]] = []
-                for code in codes:
-                    row = db.conn.execute(
-                        "SELECT name FROM stocks WHERE code = ?",
-                        (code,),
-                    ).fetchone()
-                    members.append((code, row["name"] if row else code))
+                names = db.stock_names(codes)
+                members = [(code, names.get(code) or code) for code in codes]
                 result = db.add_pool_members(pool_id, members, source="manual")
                 result["pool"] = pool_id
                 result["active"] = len(db.active_pool_codes(pool_id))

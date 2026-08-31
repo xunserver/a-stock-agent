@@ -5,8 +5,15 @@ import pytest
 from astock_control.adapters.events import events_argv
 from astock_control.adapters.ingest import INGEST_DIR, quotes_sync_argv, stock_command_argv
 from astock_control.adapters.news import news_argv
-from astock_control.protocol import ProtocolError, normalize_codes, normalize_command, normalize_query
-from astock_control.queries import handle_query
+from astock_control.protocol import ProtocolError, normalize_codes, normalize_command
+from astock_control.queries import (
+    pool_list_query,
+    status_query,
+    stock_events_query,
+    stock_get_query,
+    stock_news_query,
+    stocks_list_query,
+)
 from astock_core.db import MarketDB
 from astock_core.paths import DEFAULT_ADJUST
 
@@ -74,66 +81,6 @@ def test_stock_sync_command() -> None:
         normalize_command({"type": "stock.sync"})
 
 
-def test_stock_get_query_shape() -> None:
-    query = normalize_query({"type": "stock.get", "code": "000001.SZ"})
-    assert query == {"type": "stock.get", "code": "000001"}
-    with pytest.raises(ProtocolError, match="恰好"):
-        normalize_query({"type": "stock.get", "code": "000001,600519"})
-    with pytest.raises(ProtocolError, match="需要 code"):
-        normalize_query({"type": "stock.get"})
-
-
-def test_stock_news_query_shape() -> None:
-    query = normalize_query({"type": "stock.news", "code": "000001.SZ"})
-    assert query == {"type": "stock.news", "code": "000001", "limit": 20}
-    clipped = normalize_query({"type": "stock.news", "code": "000001", "limit": 99})
-    assert clipped["limit"] == 50
-    with pytest.raises(ProtocolError, match="恰好"):
-        normalize_query({"type": "stock.news", "code": "000001,600519"})
-    with pytest.raises(ProtocolError, match="需要 code"):
-        normalize_query({"type": "stock.news"})
-    with pytest.raises(ProtocolError, match="limit"):
-        normalize_query({"type": "stock.news", "code": "000001", "limit": 0})
-
-
-def test_stock_events_query_shape() -> None:
-    query = normalize_query(
-        {"type": "stock.events", "code": "000001.SZ", "kind": "notices"}
-    )
-    assert query == {
-        "type": "stock.events",
-        "code": "000001",
-        "kind": "notices",
-        "limit": 50,
-    }
-    research = normalize_query(
-        {"type": "stock.events", "code": "600000", "kind": "research"}
-    )
-    assert research["limit"] == 20
-    clipped = normalize_query(
-        {
-            "type": "stock.events",
-            "code": "000001",
-            "kind": "block_trades",
-            "limit": 99,
-        }
-    )
-    assert clipped["limit"] == 50
-    with pytest.raises(ProtocolError, match="kind"):
-        normalize_query({"type": "stock.events", "code": "000001", "kind": "news"})
-    with pytest.raises(ProtocolError, match="需要 code"):
-        normalize_query({"type": "stock.events", "kind": "notices"})
-    with pytest.raises(ProtocolError, match="limit"):
-        normalize_query(
-            {
-                "type": "stock.events",
-                "code": "000001",
-                "kind": "notices",
-                "limit": 0,
-            }
-        )
-
-
 def test_stocks_list_and_get_include_ticker_and_bars(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "market.db"
     monkeypatch.setattr("astock_control.queries.DB_PATH", db_path)
@@ -184,14 +131,14 @@ def test_stocks_list_and_get_include_ticker_and_bars(tmp_path, monkeypatch) -> N
             ]
         )
 
-    listed = handle_query({"type": "stocks.list"})
+    listed = stocks_list_query()
     assert listed["count"] == 1
     stock = listed["stocks"][0]
     assert stock["code"] == "000001"
     assert stock["ticker"] == "000001.SZ"
     assert stock["last_bar"] == "2026-08-26"
 
-    got = handle_query({"type": "stock.get", "code": "000001"})
+    got = stock_get_query("000001")
     assert got["ticker"] == "000001.SZ"
     assert got["profile"]["name"] == "平安银行"
     assert got["profile"]["industry"] == "银行"
@@ -223,7 +170,7 @@ def test_stock_get_includes_financial_reports(tmp_path, monkeypatch) -> None:
             ],
         )
 
-    got = handle_query({"type": "stock.get", "code": "000001"})
+    got = stock_get_query("000001")
     assert got["financial_summary"]["count"] == 1
     assert got["financial_summary"]["latest_report_date"] == "2026-06-30"
     assert got["financial_reports"][0]["report_type"] == "2026中报"
@@ -232,7 +179,7 @@ def test_stock_get_includes_financial_reports(tmp_path, monkeypatch) -> None:
 def test_stock_get_missing_raises(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("astock_control.queries.DB_PATH", tmp_path / "market.db")
     with pytest.raises(ProtocolError, match="找不到股票"):
-        handle_query({"type": "stock.get", "code": "000001"})
+        stock_get_query("000001")
 
 
 def test_stock_news_argv() -> None:
@@ -273,7 +220,7 @@ def test_stock_news_query_returns_items(tmp_path, monkeypatch) -> None:
     )
     with MarketDB(db_path) as db:
         db.add_stocks([("000001", "平安银行")])
-    got = handle_query({"type": "stock.news", "code": "000001"})
+    got = stock_news_query("000001")
     assert got["ticker"] == "000001.SZ"
     assert got["count"] == 1
     assert got["error"] is None
@@ -289,7 +236,7 @@ def test_stock_news_fetch_failure_degrades(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("astock_control.queries.fetch_stock_news", boom)
     with MarketDB(db_path) as db:
         db.add_stocks([("000001", "平安银行")])
-    got = handle_query({"type": "stock.news", "code": "000001"})
+    got = stock_news_query("000001")
     assert got["news"] == []
     assert got["count"] == 0
     assert got["error"] == "新闻暂时不可用"
@@ -298,7 +245,7 @@ def test_stock_news_fetch_failure_degrades(tmp_path, monkeypatch) -> None:
 def test_stock_news_missing_raises(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("astock_control.queries.DB_PATH", tmp_path / "market.db")
     with pytest.raises(ProtocolError, match="找不到股票"):
-        handle_query({"type": "stock.news", "code": "000001"})
+        stock_news_query("000001")
 
 
 def test_stock_events_query_returns_items(tmp_path, monkeypatch) -> None:
@@ -318,9 +265,7 @@ def test_stock_events_query_returns_items(tmp_path, monkeypatch) -> None:
     )
     with MarketDB(db_path) as db:
         db.add_stocks([("000001", "平安银行")])
-    got = handle_query(
-        {"type": "stock.events", "code": "000001", "kind": "notices", "limit": 20}
-    )
+    got = stock_events_query("000001", kind="notices", limit=20)
     assert got["ticker"] == "000001.SZ"
     assert got["kind"] == "notices"
     assert got["count"] == 1
@@ -338,14 +283,7 @@ def test_stock_events_fetch_failure_degrades(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("astock_control.queries.fetch_stock_events", boom)
     with MarketDB(db_path) as db:
         db.add_stocks([("600000", "浦发银行")])
-    got = handle_query(
-        {
-            "type": "stock.events",
-            "code": "600000",
-            "kind": "holder_changes",
-            "limit": 20,
-        }
-    )
+    got = stock_events_query("600000", kind="holder_changes", limit=20)
     assert got["events"] == []
     assert got["count"] == 0
     assert got["error"] == "股东变更暂时不可用"
@@ -354,9 +292,7 @@ def test_stock_events_fetch_failure_degrades(tmp_path, monkeypatch) -> None:
 def test_stock_events_missing_raises(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("astock_control.queries.DB_PATH", tmp_path / "market.db")
     with pytest.raises(ProtocolError, match="找不到股票"):
-        handle_query(
-            {"type": "stock.events", "code": "000001", "kind": "notices", "limit": 10}
-        )
+        stock_events_query("000001", kind="notices", limit=10)
 
 
 def _bar(code: str, trade_date: str) -> tuple:
@@ -403,14 +339,14 @@ def test_status_and_members_need_sync(tmp_path, monkeypatch) -> None:
         )
         db.upsert_bars([_bar("000001", "2026-08-26"), _bar("600519", "2026-08-28")])
 
-    status = handle_query({"type": "status", "pool": "default"})
+    status = status_query("default")
     assert status["trade_date"] == "2026-08-28"
     assert status["need_sync"] == 2
     assert status["need_full"] == 1
     assert status["need_fill"] == 1
     assert status["already_current"] == 1
 
-    listed = handle_query({"type": "pool.list", "pool": "default"})
+    listed = pool_list_query("default")
     by_code = {item["code"]: item for item in listed["members"]}
     assert by_code["000002"]["quote_plan"] == "full"
     assert by_code["000002"]["needs_sync"] is True
@@ -443,8 +379,7 @@ def test_status_before_session_open_uses_prior_trade_date(tmp_path, monkeypatch)
         )
         db.upsert_bars([_bar("000001", "2026-08-26"), _bar("600519", "2026-08-26")])
 
-    status = handle_query({"type": "status", "pool": "default"})
+    status = status_query("default")
     assert status["trade_date"] == "2026-08-26"
     assert status["need_sync"] == 0
     assert status["already_current"] == 2
-

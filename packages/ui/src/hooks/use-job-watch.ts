@@ -1,65 +1,56 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
-import { getJob, watchJob, type Job } from "@/lib/api"
+import { useJobs } from "@/components/job-provider"
+import { getJob, type Job } from "@/lib/api"
 import { isOpenJob } from "@/lib/jobs"
 
+/** Read job details while JobProvider remains the only live SSE subscriber. */
 export function useJobWatch(jobId: string | null, onDone?: (job: Job) => void) {
-  const [job, setJob] = useState<Job | null>(null)
-  const [logs, setLogs] = useState<string[]>([])
+  const { jobs } = useJobs()
+  const [initial, setInitial] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const onDoneRef = useRef(onDone)
+  const notifiedRef = useRef<string | null>(null)
   onDoneRef.current = onDone
 
   useEffect(() => {
     if (!jobId) {
-      setJob(null)
-      setLogs([])
+      setInitial(null)
       setError(null)
       setLoading(false)
       return
     }
     let cancelled = false
-    let unwatch: (() => void) | undefined
-    setJob(null)
-    setLogs([])
-    setError(null)
     setLoading(true)
+    setError(null)
     void getJob(jobId)
-      .then((initial) => {
-        if (cancelled) return
-        const initialLogs = initial.log ?? []
-        setJob(initial)
-        setLogs(initialLogs)
-        setLoading(false)
-        if (!isOpenJob(initial.status)) return
-        let skip = initialLogs.length
-        unwatch = watchJob(
-          initial.id,
-          (line) => {
-            if (skip > 0) {
-              skip -= 1
-              return
-            }
-            setLogs((current) => [...current, line])
-          },
-          (done) => {
-            setJob(done)
-            onDoneRef.current?.(done)
-          },
-          setError
-        )
+      .then((job) => {
+        if (!cancelled) setInitial(job)
       })
       .catch((reason: unknown) => {
-        if (cancelled) return
-        setLoading(false)
-        setError(reason instanceof Error ? reason.message : "读取任务失败")
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : "读取任务失败")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
-      unwatch?.()
     }
   }, [jobId])
 
-  return { job, logs, error, loading }
+  const live = useMemo(
+    () => jobs.find((job) => job.id === jobId) ?? null,
+    [jobs, jobId]
+  )
+  const job = live ?? initial
+
+  useEffect(() => {
+    if (!job || isOpenJob(job.status) || notifiedRef.current === job.id) return
+    notifiedRef.current = job.id
+    onDoneRef.current?.(job)
+  }, [job])
+
+  return { job, logs: job?.log ?? initial?.log ?? [], error, loading }
 }

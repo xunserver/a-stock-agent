@@ -6,28 +6,27 @@ from fastapi.testclient import TestClient
 
 from astock_control.app import create_app
 from astock_control.config import SettingsRunner
-from astock_control.engine import DispatchRunner, Engine
-from astock_control.queries import handle_query
+from astock_control.engine import JobService
+from astock_control.task_registry import TaskDefinition, TaskRegistry
 from astock_core.paths import control_json_path, system_db_path
 from tests.test_engine import FakeRunner
 
 
 def _client() -> TestClient:
-    engine = Engine(
-        DispatchRunner(
-            {
-                "quotes.sync": FakeRunner(),
-                "settings.update": SettingsRunner(),
-            }
-        ),
-        handle_query,
+    engine = JobService(
+        TaskRegistry(
+            (
+                TaskDefinition("quotes.sync", FakeRunner()),
+                TaskDefinition("settings.update", SettingsRunner()),
+            )
+        )
     )
     return TestClient(create_app(engine))
 
 
 def test_catalog_lists_modules_and_persists_schema() -> None:
     with _client() as client:
-        response = client.post("/api/queries", json={"type": "settings.catalog"})
+        response = client.get("/api/settings/catalog")
         assert response.status_code == 200
         body = response.json()
         module_ids = [item["id"] for item in body["modules"]]
@@ -64,7 +63,7 @@ def test_catalog_lists_modules_and_persists_schema() -> None:
 def test_section_get_and_update_roundtrip() -> None:
     with _client() as client:
         saved = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "module": "ingest",
@@ -72,7 +71,7 @@ def test_section_get_and_update_roundtrip() -> None:
                 "values": {"adjust": "hfq", "sleep": 0.5},
             },
         )
-        assert saved.status_code == 200
+        assert saved.status_code == 202
         job = saved.json()
         assert job["status"] == "succeeded"
         assert job["result"]["module"] == "ingest"
@@ -82,10 +81,7 @@ def test_section_get_and_update_roundtrip() -> None:
         assert job["result"]["values"]["pool"] == "default"
         assert "api_key" not in json.dumps(job)
 
-        fetched = client.post(
-            "/api/queries",
-            json={"type": "settings.get", "module": "ingest", "section": "quotes"},
-        )
+        fetched = client.get("/api/settings", params={"module": "ingest", "section": "quotes"})
         assert fetched.status_code == 200
         assert fetched.json()["values"]["adjust"] == "hfq"
         assert fetched.json()["schema"]["properties"]["sleep"]["minimum"] == 0
@@ -94,7 +90,7 @@ def test_section_get_and_update_roundtrip() -> None:
 def test_updating_one_section_does_not_change_another() -> None:
     with _client() as client:
         client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "module": "analyze",
@@ -103,7 +99,7 @@ def test_updating_one_section_does_not_change_another() -> None:
             },
         )
         client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "module": "ingest",
@@ -112,18 +108,9 @@ def test_updating_one_section_does_not_change_another() -> None:
             },
         )
 
-        llm = client.post(
-            "/api/queries",
-            json={"type": "settings.get", "module": "analyze", "section": "llm"},
-        ).json()
-        quotes = client.post(
-            "/api/queries",
-            json={"type": "settings.get", "module": "ingest", "section": "quotes"},
-        ).json()
-        schedule = client.post(
-            "/api/queries",
-            json={"type": "settings.get", "module": "ingest", "section": "schedule"},
-        ).json()
+        llm = client.get("/api/settings", params={"module": "analyze", "section": "llm"}).json()
+        quotes = client.get("/api/settings", params={"module": "ingest", "section": "quotes"}).json()
+        schedule = client.get("/api/settings", params={"module": "ingest", "section": "schedule"}).json()
 
         assert llm["values"]["deep_think_llm"] == "qwen-plus"
         assert llm["values"]["api_key_set"] is True
@@ -136,7 +123,7 @@ def test_updating_one_section_does_not_change_another() -> None:
 def test_section_values_survive_new_http_client() -> None:
     with _client() as client:
         client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "module": "qlib",
@@ -146,7 +133,7 @@ def test_section_values_survive_new_http_client() -> None:
         )
 
     with _client() as client:
-        catalog = client.post("/api/queries", json={"type": "settings.catalog"}).json()
+        catalog = client.get("/api/settings/catalog").json()
         qlib = next(item for item in catalog["modules"] if item["id"] == "qlib")
         workflow = next(item for item in qlib["sections"] if item["id"] == "workflow")
         assert workflow["values"]["topk"] == 20
@@ -157,7 +144,7 @@ def test_section_values_survive_new_http_client() -> None:
 def test_invalid_section_update_is_rejected_before_queue() -> None:
     with _client() as client:
         bad = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "module": "ingest",
@@ -166,7 +153,7 @@ def test_invalid_section_update_is_rejected_before_queue() -> None:
             },
         )
         assert bad.status_code == 400
-        assert "复权" in bad.json()["error"]
+        assert "复权" in bad.json()["error"]["message"]
 
         listed = client.get("/api/jobs")
         assert listed.json()["jobs"] == []
@@ -175,7 +162,7 @@ def test_invalid_section_update_is_rejected_before_queue() -> None:
 def test_read_only_paths_cannot_be_updated() -> None:
     with _client() as client:
         bad = client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "module": "system",
@@ -184,19 +171,19 @@ def test_read_only_paths_cannot_be_updated() -> None:
             },
         )
         assert bad.status_code == 400
-        assert "不能修改" in bad.json()["error"]
+        assert "不能修改" in bad.json()["error"]["message"]
 
 
 def test_legacy_settings_get_still_assembles_view() -> None:
     with _client() as client:
         client.post(
-            "/api/commands",
+            "/api/jobs",
             json={
                 "type": "settings.update",
                 "settings": {"adjust": "hfq", "quotes": {"sleep": 0.5}},
             },
         )
-        current = client.post("/api/queries", json={"type": "settings.get"})
+        current = client.get("/api/settings")
         body = current.json()
         assert body["adjust"] == "hfq"
         assert body["quotes"]["sleep"] == 0.5
@@ -226,7 +213,7 @@ def test_migrates_legacy_control_json(tmp_path, monkeypatch) -> None:
     )
 
     with _client() as client:
-        catalog = client.post("/api/queries", json={"type": "settings.catalog"}).json()
+        catalog = client.get("/api/settings/catalog").json()
         ingest = next(item for item in catalog["modules"] if item["id"] == "ingest")
         quotes = next(item for item in ingest["sections"] if item["id"] == "quotes")
         schedule = next(item for item in ingest["sections"] if item["id"] == "schedule")

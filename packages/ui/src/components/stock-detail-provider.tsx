@@ -1,6 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
+  lazy,
+  Suspense,
   useCallback,
   useContext,
   useMemo,
@@ -8,8 +10,13 @@ import {
   type ReactNode,
 } from "react"
 
-import { StockDetailDialog } from "@/components/stock-detail-dialog"
 import { normalizeStockCode } from "@/lib/ticker"
+
+const StockDetailDialog = lazy(() =>
+  import("@/components/stock-detail-dialog").then((module) => ({
+    default: module.StockDetailDialog,
+  }))
+)
 
 type StockDetailContextValue = {
   openStock: (code: string) => void
@@ -40,13 +47,16 @@ export function StockDetailProvider({ children }: { children: ReactNode }) {
 
 export function StockDetailDialogHost() {
   const { code, closeStock } = useStockDetail()
+  if (!code) return null
   return (
-    <StockDetailDialog
-      code={code}
-      onOpenChange={(open) => {
-        if (!open) closeStock()
-      }}
-    />
+    <Suspense fallback={null}>
+      <StockDetailDialog
+        code={code}
+        onOpenChange={(open) => {
+          if (!open) closeStock()
+        }}
+      />
+    </Suspense>
   )
 }
 

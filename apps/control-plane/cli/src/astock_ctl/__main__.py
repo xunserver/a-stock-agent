@@ -169,10 +169,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         _serve(args.host, args.port)
         return
     if args.cmd == "status":
-        payload: dict[str, Any] = {"type": "status"}
-        if args.pool:
-            payload["pool"] = args.pool
-        data = request("POST", "/api/queries", payload=payload)
+        params = {"pool": args.pool} if args.pool else None
+        data = request("GET", "/api/status", params=params)
         _print_json(data) if args.json else print(_format_status(data))
         return
     if args.cmd == "quotes":
@@ -185,7 +183,7 @@ def _dispatch(args: argparse.Namespace) -> None:
             payload["adjust"] = args.adjust
         if args.limit is not None:
             payload["limit"] = args.limit
-        job = request("POST", "/api/commands", payload=payload)
+        job = request("POST", "/api/jobs", payload=payload)
         if args.no_wait:
             _print_json(job) if args.json else print(job["id"])
             return
@@ -200,7 +198,7 @@ def _dispatch(args: argparse.Namespace) -> None:
         return
     if args.cmd == "settings":
         if args.settings_cmd == "catalog":
-            data = request("POST", "/api/queries", payload={"type": "settings.catalog"})
+            data = request("GET", "/api/settings/catalog")
             _print_json(data)
             return
         if args.settings_cmd == "set":
@@ -217,7 +215,7 @@ def _dispatch(args: argparse.Namespace) -> None:
                     raise RuntimeError("values 必须是 JSON 对象")
                 job = request(
                     "POST",
-                    "/api/commands",
+                    "/api/jobs",
                     payload={
                         "type": "settings.update",
                         "module": args.module,
@@ -228,13 +226,9 @@ def _dispatch(args: argparse.Namespace) -> None:
                 if job.get("status") == "failed":
                     raise RuntimeError(job.get("error") or "保存失败")
                 data = job.get("result") or request(
-                    "POST",
-                    "/api/queries",
-                    payload={
-                        "type": "settings.get",
-                        "module": args.module,
-                        "section": args.section,
-                    },
+                    "GET",
+                    "/api/settings",
+                    params={"module": args.module, "section": args.section},
                 )
                 _print_json(data)
                 return
@@ -256,21 +250,19 @@ def _dispatch(args: argparse.Namespace) -> None:
                 patch["quotes"] = quotes_patch
             if not patch:
                 raise RuntimeError("没有要更新的设置项")
-            job = request("POST", "/api/commands", payload={"type": "settings.update", "settings": patch})
+            job = request("POST", "/api/jobs", payload={"type": "settings.update", "settings": patch})
             if job.get("status") == "failed":
                 raise RuntimeError(job.get("error") or "保存失败")
-            data = job.get("result") or request("POST", "/api/queries", payload={"type": "settings.get"})
+            data = job.get("result") or request("GET", "/api/settings")
             _print_json(data)
             return
-        payload: dict[str, Any] = {"type": "settings.get"}
         module = getattr(args, "module", None)
         section = getattr(args, "section", None)
         if module or section:
             if not module or not section:
                 raise RuntimeError("读取一段设置需要同时提供 --module 和 --section")
-            payload["module"] = module
-            payload["section"] = section
-        data = request("POST", "/api/queries", payload=payload)
+        params = {"module": module, "section": section} if module else None
+        data = request("GET", "/api/settings", params=params)
         _print_json(data)
         return
     if args.cmd == "pool":
@@ -315,7 +307,7 @@ def _dispatch(args: argparse.Namespace) -> None:
 
 def _dispatch_pool(args: argparse.Namespace) -> None:
     if args.pool_cmd == "ls":
-        data = request("POST", "/api/queries", payload={"type": "pools.list"})
+        data = request("GET", "/api/pools")
         if args.json:
             _print_json(data)
             return
@@ -329,11 +321,11 @@ def _dispatch_pool(args: argparse.Namespace) -> None:
         payload = {"type": "pool.create", "pool": args.pool_id}
         if args.name:
             payload["name"] = args.name
-        job = request("POST", "/api/commands", payload=payload)
+        job = request("POST", "/api/jobs", payload=payload)
         _finish_job(job, json_out=args.json)
         return
     if args.pool_cmd == "delete":
-        job = request("POST", "/api/commands", payload={"type": "pool.delete", "pool": args.pool_id})
+        job = request("POST", "/api/jobs", payload={"type": "pool.delete", "pool": args.pool_id})
         _finish_job(job, json_out=args.json)
         return
     payload: dict[str, Any] = {"type": f"pool.{args.pool_cmd}"}
@@ -350,7 +342,7 @@ def _dispatch_pool(args: argparse.Namespace) -> None:
         payload["index"] = args.index
     else:
         payload["codes"] = args.codes
-    job = request("POST", "/api/commands", payload=payload)
+    job = request("POST", "/api/jobs", payload=payload)
     wait = args.pool_cmd in {"add", "set"} and bool(getattr(args, "index", None))
     _finish_job(job, json_out=args.json, wait=wait)
 
@@ -362,7 +354,7 @@ def _dispatch_analyze(args: argparse.Namespace) -> None:
             payload["date"] = args.date
         if args.pool:
             payload["pool"] = args.pool
-        job = request("POST", "/api/commands", payload=payload)
+        job = request("POST", "/api/jobs", payload=payload)
         if args.no_wait:
             _print_json(job) if args.json else print(job["id"])
             return
@@ -376,10 +368,8 @@ def _dispatch_analyze(args: argparse.Namespace) -> None:
             raise RuntimeError(final.get("error") or "任务失败")
         return
     if args.analyze_cmd == "list":
-        payload = {"type": "analyze.list"}
-        if args.code:
-            payload["code"] = args.code
-        data = request("POST", "/api/queries", payload=payload)
+        params = {"code": args.code} if args.code else None
+        data = request("GET", "/api/analyses", params=params)
         if args.json:
             _print_json(data)
             return
@@ -396,16 +386,14 @@ def _dispatch_analyze(args: argparse.Namespace) -> None:
             )
         )
         return
-    payload = {"type": "analyze.get", "code": args.code, "date": args.date}
-    if args.run_id:
-        payload["run_id"] = args.run_id
-    data = request("POST", "/api/queries", payload=payload)
+    params = {"run_id": args.run_id} if args.run_id else None
+    data = request("GET", f"/api/analyses/{args.code}/{args.date}", params=params)
     _print_json(data)
 
 
 def _dispatch_stock(args: argparse.Namespace) -> None:
     if args.stock_cmd == "ls":
-        data = request("POST", "/api/queries", payload={"type": "stocks.list"})
+        data = request("GET", "/api/stocks")
         if args.json:
             _print_json(data)
             return
@@ -429,12 +417,12 @@ def _dispatch_stock(args: argparse.Namespace) -> None:
             payload["index"] = args.index
         else:
             payload["codes"] = args.codes
-        job = request("POST", "/api/commands", payload=payload)
+        job = request("POST", "/api/jobs", payload=payload)
         _finish_job(job, json_out=args.json, wait=bool(args.index))
         return
     job = request(
         "POST",
-        "/api/commands",
+        "/api/jobs",
         payload={"type": "stock.remove", "codes": args.codes},
     )
     _finish_job(job, json_out=args.json)

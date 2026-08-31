@@ -5,9 +5,16 @@ import json
 import pytest
 
 from astock_control.config import load_settings, preview_update, settings_view, validate_settings, write_settings
-from astock_control.engine import Engine
-from astock_control.protocol import ProtocolError
+from astock_control.engine import JobService
+from astock_control.protocol import COMMAND_TYPES, ProtocolError
+from astock_control.task_registry import TaskDefinition, TaskRegistry
 from tests.test_engine import FakeRunner, _wait_status
+
+
+def _job_service(runner: FakeRunner) -> JobService:
+    return JobService(
+        TaskRegistry(TaskDefinition(task_type, runner) for task_type in COMMAND_TYPES)
+    )
 
 
 def test_defaults_when_file_missing() -> None:
@@ -64,7 +71,7 @@ def test_quotes_sync_inherits_saved_defaults() -> None:
         }
     )
     runner = FakeRunner()
-    engine = Engine(runner, lambda q: {})
+    engine = _job_service(runner)
     engine.start()
     try:
         job = engine.submit({"type": "quotes.sync"})
@@ -80,7 +87,7 @@ def test_quotes_sync_inherits_saved_defaults() -> None:
 
 def test_settings_update_runs_immediately() -> None:
     runner = FakeRunner(result={"pool": "default", "adjust": "qfq"})
-    engine = Engine(runner, lambda q: {})
+    engine = _job_service(runner)
     job = engine.submit({"type": "settings.update", "settings": {"adjust": ""}})
     assert job.status == "succeeded"
     assert runner.calls[0]["type"] == "settings.update"
@@ -88,7 +95,7 @@ def test_settings_update_runs_immediately() -> None:
 
 
 def test_settings_update_rejects_before_queue() -> None:
-    engine = Engine(FakeRunner(), lambda q: {})
+    engine = _job_service(FakeRunner())
     with pytest.raises(ProtocolError, match="复权"):
         engine.submit({"type": "settings.update", "settings": {"adjust": "xx"}})
     assert engine.list_jobs() == []
@@ -182,7 +189,7 @@ def test_quotes_sleep_does_not_clear_api_key() -> None:
 def test_analyze_run_inherits_analysts() -> None:
     write_settings({"analyze": {"analysts": ["market", "news"]}})
     runner = FakeRunner()
-    engine = Engine(runner, lambda q: {})
+    engine = _job_service(runner)
     engine.start()
     try:
         job = engine.submit({"type": "analyze.run", "code": "1"})

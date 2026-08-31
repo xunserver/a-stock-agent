@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from astock_core.automation import AutomationStore
+from astock_core.calendar_store import MarketCalendar, TradingCalendar
 from astock_core.settings.db import SystemDB
 
 from astock_control.config import load_settings
@@ -86,7 +87,7 @@ def calculate_next_run(
     automation: dict[str, Any],
     *,
     after: datetime | None = None,
-    store: AutomationStore,
+    calendar: TradingCalendar,
 ) -> str:
     current = after or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -105,7 +106,7 @@ def calculate_next_run(
         if kind == "weekly" and day.weekday() not in weekdays:
             continue
         if kind == "trading_day":
-            trading = store.is_trading_day(day.isoformat())
+            trading = calendar.is_trading_day(day.isoformat())
             if trading is None:
                 raise CalendarUnavailable(f"交易日历尚未覆盖 {day.isoformat()}")
             if not trading:
@@ -115,9 +116,15 @@ def calculate_next_run(
 
 
 class AutomationManager:
-    def __init__(self, store: AutomationStore, engine: Any) -> None:
+    def __init__(
+        self,
+        store: AutomationStore,
+        engine: Any,
+        calendar: TradingCalendar | None = None,
+    ) -> None:
         self.store = store
         self.engine = engine
+        self.calendar = calendar or MarketCalendar()
 
     def catalog(self) -> dict[str, Any]:
         return {"commands": AUTOMATION_COMMAND_CATALOG}
@@ -248,7 +255,7 @@ class AutomationManager:
         if not values.get("enabled"):
             return None, None
         try:
-            return calculate_next_run(values, store=self.store), "ok"
+            return calculate_next_run(values, calendar=self.calendar), "ok"
         except CalendarUnavailable as exc:
             return None, str(exc)
 

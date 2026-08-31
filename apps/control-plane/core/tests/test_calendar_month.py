@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from astock_control.protocol import normalize_query
-from astock_control.queries import handle_query
+from astock_control.queries import calendar_month_all_query
 from astock_core.db import MarketDB
 
 
@@ -23,9 +22,7 @@ def test_calendar_month_query_marks_open_markets(tmp_path, monkeypatch) -> None:
         db.replace_calendar(["2026-08-03", "2026-08-28"], market_id="cn_a")
         db.replace_calendar(["2026-08-28"], market_id="us")
 
-    query = normalize_query({"type": "calendar.month", "year": 2026, "month": 8})
-    assert query == {"type": "calendar.month", "year": 2026, "month": 8}
-    payload = handle_query(query)
+    payload = calendar_month_all_query(year=2026, month=8)
     by_date = {item["date"]: item["markets"] for item in payload["days"]}
     assert by_date["2026-08-03"] == ["cn_a"]
     assert by_date["2026-08-28"] == ["cn_a", "us"]

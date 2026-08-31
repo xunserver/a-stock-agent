@@ -6,9 +6,9 @@ from astock_core.db import MarketDB
 from astock_core.qlib_store import QlibStore
 
 from astock_control.adapters.qlib import qlib_select_argv
-from astock_control.engine import Engine
-from astock_control.protocol import ProtocolError, normalize_command, normalize_query
-from astock_control.queries import handle_query
+from astock_control.engine import JobService
+from astock_control.protocol import ProtocolError, normalize_command
+from astock_control.queries import qlib_overview_query, qlib_run_view
 
 WORKFLOW = {
     "config": "workflow_lightgbm_alpha158",
@@ -52,7 +52,7 @@ def test_qlib_protocol_normalizes_workflow_extensions() -> None:
     }
 
 
-def test_qlib_protocol_normalizes_command_and_queries() -> None:
+def test_qlib_protocol_normalizes_command() -> None:
     command = normalize_command(
         {
             "type": "qlib.run",
@@ -64,13 +64,6 @@ def test_qlib_protocol_normalizes_command_and_queries() -> None:
         "type": "qlib.run",
         "pool": "focus",
         "workflow": {"topk": 5, "n_drop": 1},
-    }
-    assert (
-        normalize_query({"type": "qlib.overview", "pool": "focus"})["pool"] == "focus"
-    )
-    assert normalize_query({"type": "qlib.run.get", "run_id": "run-1"}) == {
-        "type": "qlib.run.get",
-        "run_id": "run-1",
     }
 
 
@@ -85,22 +78,22 @@ def test_qlib_protocol_rejects_invalid_workflow() -> None:
 
 def test_engine_uses_job_id_as_qlib_run_id() -> None:
     runner = FakeRunner()
-    engine = Engine(runner, lambda query: query)
-    engine.start()
+    jobs = JobService(runner)
+    jobs.start()
     try:
-        job = engine.submit({"type": "qlib.run", "pool": "focus"})
+        job = jobs.submit({"type": "qlib.run", "pool": "focus"})
         assert job.background is True
         deadline = time.time() + 2
-        done = engine.get_job(job.id)
+        done = jobs.get_job(job.id)
         while done is not None and done.status not in {"succeeded", "failed"}:
             assert time.time() < deadline
             time.sleep(0.01)
-            done = engine.get_job(job.id)
+            done = jobs.get_job(job.id)
         assert done is not None and done.status == "succeeded"
         assert done.command["run_id"] == job.id
         assert runner.command["run_id"] == job.id
     finally:
-        engine.stop()
+        jobs.stop()
 
 
 def test_qlib_store_keeps_pool_defaults_and_immutable_runs(tmp_path) -> None:
@@ -166,9 +159,9 @@ def test_qlib_queries_add_stock_names(tmp_path, monkeypatch) -> None:
             ],
         }
     )
-    detail = handle_query({"type": "qlib.run.get", "run_id": "query-run"})
+    detail = qlib_run_view(store.get_run("query-run") or {})
     assert detail["candidates"][0]["name"] == "平安银行"
-    overview = handle_query({"type": "qlib.overview", "pool": "focus"})
+    overview = qlib_overview_query("focus")
     assert overview["pool"]["active"] == 1
     assert overview["latest_run"]["run_id"] == "query-run"
 

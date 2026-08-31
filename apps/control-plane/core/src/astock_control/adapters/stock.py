@@ -33,13 +33,8 @@ class StockRunner:
             codes = [str(code) for code in command.get("codes") or []]
             on_log(f"加入系统 {','.join(codes)}")
             with MarketDB(self._db_path) as db:
-                members: list[tuple[str, str]] = []
-                for code in codes:
-                    row = db.conn.execute(
-                        "SELECT name FROM stocks WHERE code = ?",
-                        (code,),
-                    ).fetchone()
-                    members.append((code, row["name"] if row else code))
+                names = db.stock_names(codes)
+                members = [(code, names.get(code) or code) for code in codes]
                 return db.add_stocks(members)
         if typ == "stock.remove":
             codes = [str(code) for code in command.get("codes") or []]

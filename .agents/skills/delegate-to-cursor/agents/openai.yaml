@@ -1,0 +1,7 @@
+interface:
+  display_name: "Delegate to Cursor"
+  short_description: "Orchestrate bounded Cursor implementation loops"
+  default_prompt: "Use $delegate-to-cursor to split this spec and run Cursor implement-review-repair loops for every slice."
+
+policy:
+  allow_implicit_invocation: false

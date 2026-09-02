@@ -1,7 +1,7 @@
 interface:
-  display_name: "Delegate to Cursor"
-  short_description: "Orchestrate bounded Cursor implementation loops"
-  default_prompt: "Use $delegate-to-cursor to split this spec and run Cursor implement-review-repair loops for every slice."
+  display_name: "委派给 Cursor"
+  short_description: "将实现、测试、验证和修复分别委派给 Cursor"
+  default_prompt: "使用 $delegate-to-cursor 按既有 SPEC 和 PLAN，依次启动独立 Cursor 会话完成实现、测试、验证和修复。"
 
 policy:
   allow_implicit_invocation: false

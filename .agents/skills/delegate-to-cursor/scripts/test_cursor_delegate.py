@@ -246,6 +246,20 @@ class CursorDelegateTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["runner"]["accepted_dirty_worktree"])
 
+    def test_fresh_repair_can_accept_allowed_changes_in_dedicated_dirty_worktree(self) -> None:
+        (self.repo / "allowed.txt").write_text("existing\n", encoding="utf-8")
+        result = run(
+            self.base(
+                "--mode", "execute", "--accept-dirty-worktree",
+                "--allow-path", "allowed.txt", "--prompt", "WRITE:allowed.txt repair task",
+            ),
+            self.repo,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["runner"]["accepted_dirty_worktree"])
+        self.assertEqual(payload["session_id"], "fake-session")
+
     def test_event_log_remains_jsonl_when_cursor_prints_banner(self) -> None:
         environment = os.environ.copy()
         environment["FAKE_STDOUT_BANNER"] = "1"

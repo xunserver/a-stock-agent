@@ -535,7 +535,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--accept-dirty-worktree",
         action="store_true",
-        help="allow a focused --resume repair in an existing dirty worktree",
+        help="allow a focused repair delegation in an existing dirty worktree",
     )
     parser.add_argument("--allow-path", action="append", default=[])
     parser.add_argument("--allow-shell", action="append", default=[])
@@ -584,11 +584,9 @@ def parse_args() -> argparse.Namespace:
         )
     if args.worktree_name and not args.isolate:
         parser.error("--worktree-name requires --isolate")
-    if args.accept_dirty_worktree and (
-        args.mode != "execute" or not args.resume or args.isolate
-    ):
+    if args.accept_dirty_worktree and (args.mode != "execute" or args.isolate):
         parser.error(
-            "--accept-dirty-worktree requires non-isolated execute mode with explicit --resume"
+            "--accept-dirty-worktree requires non-isolated execute mode"
         )
     return args
 
